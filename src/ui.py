@@ -22,19 +22,39 @@ def render_custom_css():
             background-color: #f0f2f6;
             margin-bottom: 10px;
         }
+        /* Mobile Optimizations */
+        @media (max-width: 768px) {
+            .stButton>button {
+                padding: 15px 10px;
+                font-size: 16px;
+                margin-bottom: 8px;
+            }
+            .status-box {
+                padding: 8px;
+                font-size: 14px;
+            }
+            /* Ajuste para inputs em mobile */
+            div[data-baseweb="input"] {
+                font-size: 16px; /* Evita zoom automático no iOS */
+            }
+        }
     </style>
     """, unsafe_allow_html=True)
 
-def render_sidebar(last_sync_date, on_sync_click):
+def render_sidebar(last_sync_date, on_sync_click, on_mobile_mode_change=None):
     """
     Renders the sidebar with controls and sync status.
     
     Args:
         last_sync_date (datetime or str): The timestamp of the last synchronization.
         on_sync_click (callable): Function to be called when sync button is clicked.
+        on_mobile_mode_change (callable): Function to be called when mobile mode is toggled.
     """
     with st.sidebar:
         st.title("Controles")
+        
+        # Toggle para Modo Mobile
+        st.checkbox("📱 Modo Mobile", key="mobile_mode", help="Ativa otimizações para telas pequenas (Galaxy S25 Ultra)", on_change=on_mobile_mode_change)
         
         if st.button("🔄 Sincronizar Dados Agora"):
             on_sync_click()
@@ -97,6 +117,17 @@ def render_filters_and_actions(all_apts, on_filter_change, on_verify_click):
     """
     st.markdown("### 🔍 Consultar Disponibilidade")
     
+    # Se mobile mode ativo, usar expander para economizar espaço
+    is_mobile = st.session_state.get('mobile_mode', False)
+    
+    if is_mobile:
+        with st.expander("🔧 Filtros e Datas", expanded=True):
+            _render_filter_content(all_apts, on_filter_change, on_verify_click)
+    else:
+        _render_filter_content(all_apts, on_filter_change, on_verify_click)
+
+def _render_filter_content(all_apts, on_filter_change, on_verify_click):
+    """Helper function to render filter content (used with or without expander)."""
     col_filtros, col_dates = st.columns([1, 2])
     
     with col_filtros:

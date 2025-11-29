@@ -168,7 +168,7 @@ def tratar_dataframe_consolidado(df):
 
     return df
 
-def create_gantt_chart(df):
+def create_gantt_chart(df, is_mobile=False):
     """
     Gera o gráfico de Gantt com as reservas (baseado no notebook).
     """
@@ -179,8 +179,12 @@ def create_gantt_chart(df):
     hoje = pd.to_datetime('today').normalize()
     agora = pd.to_datetime('now')
     
-    zoom_inicio = hoje - pd.Timedelta(days=10)
-    zoom_fim = hoje + pd.Timedelta(days=20)
+    # Zoom Fixo: 10 dias para mobile, 20 dias para desktop
+    days_back = 2
+    days_forward = 8 if is_mobile else 18
+    
+    zoom_inicio = hoje - pd.Timedelta(days=days_back)
+    zoom_fim = hoje + pd.Timedelta(days=days_forward)
 
     # --- Cores ---
     colors = {
@@ -214,7 +218,11 @@ def create_gantt_chart(df):
     )
     ultima_data_reserva = df_grafico['Fim'].max()
     num_apartamentos = len(df_grafico['Apartamento'].unique())
-    altura_dinamica = 300 + (num_apartamentos * 50)
+    
+    # Altura dinâmica ajustada para mobile (barras mais altas)
+    base_height = 400 if is_mobile else 300
+    per_apt_height = 80 if is_mobile else 50
+    altura_dinamica = base_height + (num_apartamentos * per_apt_height)
 
     # --- CRIAÇÃO DO GRÁFICO ---
     fig = px.timeline(df_grafico, x_start="Início", x_end="Fim", y="Apartamento",
@@ -286,15 +294,75 @@ def create_gantt_chart(df):
 
     # --- Layout ---
     ordem_apartamentos = ['AP-101', 'AP-201', 'CBL004', 'SM-C108', 'SM-D014']
+    
+    # Configurações condicionais para Mobile vs Desktop
+    margin_l = 10 if is_mobile else 50
+    show_y_labels = not is_mobile
+    
     fig.update_layout(
-        title_text="Mapa de Reservas", height=altura_dinamica, xaxis_rangeslider_visible=True,
-        yaxis_autorange='reversed', hovermode='x unified', barcornerradius=5, plot_bgcolor='white',
-        margin=dict(t=150, b=40),
-        xaxis=dict(title="", side="bottom", showgrid=True, gridcolor="#E5E5E5", showticklabels=False, dtick=86400000, range=[zoom_inicio, zoom_fim]),
-        xaxis2=dict(title="", side="top", overlaying="x", showgrid=False, matches="x", tickformat='<b>%d</b><br>%a', tickangle=0, dtick=86400000, ticklabelmode="period"),
-        yaxis=dict(title="", showgrid=True, gridcolor="#E5E5E5", categoryorder='array', categoryarray=ordem_apartamentos),
-        legend=dict(orientation="h", yanchor="bottom", y=1.35, xanchor="right", x=1)
+        title_text="Mapa de Reservas", 
+        height=altura_dinamica, 
+        xaxis_rangeslider_visible=False, 
+        yaxis_autorange='reversed', 
+        hovermode='x unified', 
+        barcornerradius=5, 
+        plot_bgcolor='white',
+        dragmode='pan', 
+        margin=dict(t=100, b=40, l=margin_l, r=20), 
+        xaxis=dict(
+            title="", 
+            side="bottom", 
+            showgrid=True, 
+            gridcolor="#E5E5E5", 
+            showticklabels=False, 
+            dtick=86400000, 
+            range=[zoom_inicio, zoom_fim],
+            fixedrange=False 
+        ),
+        xaxis2=dict(
+            title="", 
+            side="top", 
+            overlaying="x", 
+            showgrid=False, 
+            matches="x", 
+            tickformat='<b>%d</b><br>%a', 
+            tickangle=0, 
+            dtick=86400000, 
+            ticklabelmode="period",
+            fixedrange=False
+        ),
+        yaxis=dict(
+            title="", 
+            showgrid=True, 
+            gridcolor="#E5E5E5", 
+            categoryorder='array', 
+            categoryarray=ordem_apartamentos,
+            fixedrange=True,
+            showticklabels=show_y_labels # Oculta labels no mobile
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
     )
+    
+    # Adiciona nomes dos apartamentos dentro do gráfico no modo mobile
+    if is_mobile:
+        for apt in ordem_apartamentos:
+            fig.add_annotation(
+                x=0, # Início do gráfico (esquerda)
+                y=apt,
+                xref="paper",
+                yref="y",
+                text=f"<b>{apt}</b>",
+                showarrow=False,
+                xanchor="left",
+                yanchor="bottom", # Fica um pouco acima da linha
+                yshift=5, # Leve ajuste para cima
+                xshift=5, # Leve ajuste para direita da borda
+                font=dict(size=12, color="black"),
+                bgcolor="rgba(255, 255, 255, 0.7)", # Fundo semi-transparente para leitura
+                bordercolor="rgba(0,0,0,0.1)",
+                borderwidth=1,
+                borderpad=2
+            )
     
     return fig
 

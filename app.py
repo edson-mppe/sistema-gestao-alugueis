@@ -102,7 +102,8 @@ def on_sync_click():
                     apts_sel = sorted(df_novo['Apartamento'].unique())
                 
                 df_filtered = df_novo[df_novo['Apartamento'].isin(apts_sel)]
-                st.session_state.gantt_fig = create_gantt_chart(df_filtered)
+                is_mobile = st.session_state.get('mobile_mode', False)
+                st.session_state.gantt_fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
             
             st.session_state.check_result_msg = None
             st.rerun()
@@ -117,7 +118,8 @@ def atualizar_grafico_base():
     apts_sel = st.session_state.apts_multiselect
     df_filtered = df_completo[df_completo['Apartamento'].isin(apts_sel)]
     
-    st.session_state.gantt_fig = create_gantt_chart(df_filtered)
+    is_mobile = st.session_state.get('mobile_mode', False)
+    st.session_state.gantt_fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
     st.session_state.check_result_msg = None
     st.session_state.check_result_status = None
 
@@ -160,7 +162,8 @@ def gerar_grafico_e_verificar():
     livres, ocupados = verificar_disponibilidade(df_filtered, dt_ini_reserva, dt_fim_reserva)
     
     # 4. Gerar Gráfico
-    fig = create_gantt_chart(df_filtered)
+    is_mobile = st.session_state.get('mobile_mode', False)
+    fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
     
     if fig:
         # 5. Adicionar Highlight (Sua Seleção)
@@ -216,7 +219,7 @@ df_reservas = carregar_dados_consolidados()
 ultima_sync = obter_ultima_sincronizacao(df_reservas)
 
 # Renderiza Sidebar
-ui.render_sidebar(ultima_sync, on_sync_click)
+ui.render_sidebar(ultima_sync, on_sync_click, on_mobile_mode_change=atualizar_grafico_base)
 
 # Renderiza Header
 ui.render_main_header()
