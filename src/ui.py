@@ -174,4 +174,6 @@ def render_check_results():
 def render_gantt_chart():
     """Renders the Gantt chart from session state."""
     if st.session_state.get('gantt_fig'):
-        st.plotly_chart(st.session_state.gantt_fig, use_container_width=True)
+        # Atualizado para corrigir aviso de depreciação do Streamlit (2025)
+        # De use_container_width=True para width="stretch"
+        st.plotly_chart(st.session_state.gantt_fig, width="stretch")
