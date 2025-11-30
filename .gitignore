@@ -5,6 +5,7 @@ token.json
 .streamlit/secrets.toml
 macro-raceway-431917-d6-ec9a58be7589.json
 desktop.ini
+refs/desktop.ini
 
 # Python
 __pycache__/
