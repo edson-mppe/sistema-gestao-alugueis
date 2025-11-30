@@ -302,12 +302,34 @@ if not df_reservas.empty:
             "Diária BT": st.column_config.TextColumn("Diária"), # Mantém como texto
         }
 
-        st.dataframe(
+        event = st.dataframe(
             df_proximos_hospedes[cols_to_show], 
             hide_index=True, 
             width="stretch", # Atualizado: width="stretch" em vez de use_container_width=True
-            column_config=col_config
+            column_config=col_config,
+            selection_mode="single-row",
+            on_select="rerun"
         )
+
+        if len(event.selection.rows) > 0:
+            selected_row_index = event.selection.rows[0]
+            selected_row = df_proximos_hospedes[cols_to_show].iloc[selected_row_index]
+            
+            apto = selected_row["Apartamento"]
+            
+            # Formata a mensagem
+            msg = f"bom dia!. Hoje teremos chech-in no Apto {apto}"
+            
+            # Codifica a mensagem para URL
+            import urllib.parse
+            msg_encoded = urllib.parse.quote(msg)
+            
+            # Número fixo conforme solicitado
+            phone = "558193275644"
+            
+            whatsapp_url = f"https://wa.me/{phone}?text={msg_encoded}"
+            
+            st.link_button(f"📱 Enviar WhatsApp (Apto {apto})", whatsapp_url)
     else:
         st.info("Não foi possível carregar os próximos hóspedes (ou não há reservas futuras).")  
     
