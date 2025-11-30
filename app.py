@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -31,6 +30,10 @@ if 'checkin_input' not in st.session_state:
     st.session_state.checkin_input = datetime.now().date()
 if 'checkout_input' not in st.session_state:
     st.session_state.checkout_input = st.session_state.checkin_input + timedelta(days=1)
+
+# Garante que o modo mobile comece como True no estado se ainda não existir
+if 'mobile_mode' not in st.session_state:
+    st.session_state.mobile_mode = True
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=300)
@@ -65,18 +68,16 @@ def obter_ultima_sincronizacao(df):
         return None
     
     try:
-        # Pegar a primeira célula não vazia como texto
         primeira = df['Última Atualização'].dropna().astype(str).str.strip()
         primeira = primeira[primeira.ne('')]
         if primeira.empty:
             return None
         primeira_texto = primeira.iloc[0]
         
-        # Tenta converter para datetime para garantir que é válido
         try:
             return datetime.strptime(primeira_texto, '%d/%m/%Y %H:%M:%S')
         except ValueError:
-            return primeira_texto # Retorna como string se falhar conversão, UI lida com isso
+            return primeira_texto 
             
     except Exception as e:
         print(f"Erro ao extrair última sincronização: {e}")
@@ -102,7 +103,8 @@ def on_sync_click():
                     apts_sel = sorted(df_novo['Apartamento'].unique())
                 
                 df_filtered = df_novo[df_novo['Apartamento'].isin(apts_sel)]
-                is_mobile = st.session_state.get('mobile_mode', False)
+                # CORREÇÃO: Default True para garantir visualização mobile no carregamento pós-sync
+                is_mobile = st.session_state.get('mobile_mode', True)
                 st.session_state.gantt_fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
             
             st.session_state.check_result_msg = None
@@ -118,7 +120,8 @@ def atualizar_grafico_base():
     apts_sel = st.session_state.apts_multiselect
     df_filtered = df_completo[df_completo['Apartamento'].isin(apts_sel)]
     
-    is_mobile = st.session_state.get('mobile_mode', False)
+    # CORREÇÃO: Default True aqui também
+    is_mobile = st.session_state.get('mobile_mode', True)
     st.session_state.gantt_fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
     st.session_state.check_result_msg = None
     st.session_state.check_result_status = None
@@ -162,7 +165,8 @@ def gerar_grafico_e_verificar():
     livres, ocupados = verificar_disponibilidade(df_filtered, dt_ini_reserva, dt_fim_reserva)
     
     # 4. Gerar Gráfico
-    is_mobile = st.session_state.get('mobile_mode', False)
+    # CORREÇÃO: Default True para mobile
+    is_mobile = st.session_state.get('mobile_mode', True)
     fig = create_gantt_chart(df_filtered, is_mobile=is_mobile)
     
     if fig:
@@ -188,10 +192,16 @@ def gerar_grafico_e_verificar():
                 ]
             ))
 
+            # --- AJUSTE DE ZOOM CONSISTENTE ---
+            # Se for mobile, usa um range menor (8 dias à frente) para manter as barras largas (zoom in)
+            # Se for desktop, usa um range maior (20 dias à frente)
+            days_fwd = 8 if is_mobile else 20
+            days_back = 2 if is_mobile else 3
+
             fig.update_layout(
                 barmode='overlay',
-                xaxis=dict(range=[dt_ini_reserva - pd.Timedelta(days=3), dt_fim_reserva + pd.Timedelta(days=10)]),
-                xaxis2=dict(range=[dt_ini_reserva - pd.Timedelta(days=3), dt_fim_reserva + pd.Timedelta(days=10)])
+                xaxis=dict(range=[dt_ini_reserva - pd.Timedelta(days=days_back), dt_fim_reserva + pd.Timedelta(days=days_fwd)]),
+                xaxis2=dict(range=[dt_ini_reserva - pd.Timedelta(days=days_back), dt_fim_reserva + pd.Timedelta(days=days_fwd)])
             )
         
         st.session_state.gantt_fig = fig
@@ -235,7 +245,7 @@ if not df_reservas.empty:
     # Renderiza Resultados da Verificação
     ui.render_check_results()
 
-    # Inicializa gráfico se necessário
+    # Inicializa gráfico se necessário (Primeira carga)
     if st.session_state.gantt_fig is None:
         atualizar_grafico_base()
 
