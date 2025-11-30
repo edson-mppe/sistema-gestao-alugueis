@@ -109,6 +109,96 @@ def baixar_dados_google_sheet(tab_name):
         st.error(f"Erro ao baixar dados da aba '{tab_name}': {e}")
         return pd.DataFrame()
 
+def baixar_proximos_hospedes_consolidados(tab_name = "Reservas Consolidadas"):
+    """
+    Baixa os próximos hóspedes (futuros) de cada apartamento da aba 'Reservas Consolidadas'.
+    Retorna DataFrame com colunas específicas e dias até o check-in.
+    """
+    try:
+        gc = authenticate_google_sheets()
+        if not gc: return pd.DataFrame()
+        
+        sh = gc.open_by_key(SHEET_KEY)
+        try:
+            worksheet = sh.worksheet(tab_name)
+        except gspread.WorksheetNotFound:
+            st.warning(f"Aba '{tab_name}' não encontrada.")
+            return pd.DataFrame()
+
+        all_values = worksheet.get_all_values()
+        
+        if len(all_values) < 1:
+            return pd.DataFrame()
+            
+        # Busca cabeçalho
+        header_row_index = -1
+        for i, row in enumerate(all_values[:10]):
+            if "Início" in row and "Fim" in row:
+                header_row_index = i
+                break
+        
+        if header_row_index != -1:
+            headers = all_values[header_row_index]
+            data = all_values[header_row_index + 1:]
+        else:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data, columns=headers)
+        
+        # Colunas essenciais (Atualizado com as novas colunas solicitadas)
+        required_cols = ['Apartamento', 'Início', 'Fim', 'Dias', 'Pessoas', 'Quem', 'Origem', 'Total BT', 'Diária BT', 'Data Reserva', 'Status']
+        existing_cols = [c for c in required_cols if c in df.columns]
+        
+        if not existing_cols:
+            return pd.DataFrame()
+            
+        df = df[existing_cols].copy()
+        
+        # Conversão de datas
+        df['Início'] = pd.to_datetime(df['Início'], dayfirst=True, errors='coerce')
+        df['Fim'] = pd.to_datetime(df['Fim'], dayfirst=True, errors='coerce')
+        
+        # Remove datas inválidas
+        df = df.dropna(subset=['Início'])
+        
+        # Filtra apenas reservas ativas (não canceladas) se a coluna Status existir
+        if 'Status' in df.columns:
+            df = df[~df['Status'].astype(str).str.contains('Cancelad', case=False, na=False)]
+
+        # Define "hoje" (apenas data, sem hora)
+        hoje = pd.Timestamp.now().normalize()
+        
+        # Filtra apenas reservas que começam hoje ou no futuro
+        # Se quiser incluir quem já está hospedado (mas ainda não saiu), use: df['Fim'] >= hoje
+        # Aqui assumirei "Próximas chegadas" -> Início >= hoje
+        df_futuro = df[df['Início'] >= hoje].copy()
+        
+        if df_futuro.empty:
+            return pd.DataFrame()
+
+        # Ordena por data de início (mais próxima primeiro)
+        df_futuro = df_futuro.sort_values('Início', ascending=True)
+        
+        # Pega a primeira ocorrência (mais próxima) para cada apartamento
+        df_proximos = df_futuro.groupby('Apartamento').head(1).reset_index(drop=True)
+        
+        # Calcula dias até o check-in
+        df_proximos['Dias até Check-in'] = (df_proximos['Início'] - hoje).dt.days
+        
+        # Formata a data para visualização
+        df_proximos['Início'] = df_proximos['Início'].dt.strftime('%d/%m/%Y')
+        df_proximos['Fim'] = df_proximos['Fim'].dt.strftime('%d/%m/%Y')
+        
+        # Organiza as colunas conforme solicitado
+        final_cols_order = ['Apartamento', 'Início', 'Fim', 'Dias', 'Pessoas', 'Quem', 'Origem', 'Total BT', 'Diária BT', 'Data Reserva', 'Dias até Check-in']
+        cols_to_return = [c for c in final_cols_order if c in df_proximos.columns]
+        
+        return df_proximos[cols_to_return]
+
+    except Exception as e:
+        st.error(f"Erro ao buscar próximos hóspedes: {e}")
+        return pd.DataFrame()
+
 def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
     """
     Baixa as 3 reservas mais recentes de cada apartamento da aba 'Reservas Consolidadas'.

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 # Importações dos módulos locais
 from src.services import sincronizar_dados_completo
-from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas
+from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados
 from src.logic import tratar_dataframe_consolidado, create_gantt_chart, verificar_disponibilidade
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
@@ -258,7 +258,61 @@ if not df_reservas.empty:
 
     # Renderiza Gráfico
     ui.render_gantt_chart()
+
+    st.divider()
+
+    # --- EXIBIR TABELA DE PRÓXIMOS HÓSPEDES ---
+    st.markdown("### 📋 Próximos Hóspedes")
     
+    with st.spinner("Buscando próximas chegadas..."):
+        df_proximos_hospedes = baixar_proximos_hospedes_consolidados()
+    
+    if not df_proximos_hospedes.empty:
+        # Conversão e limpeza de dados
+        for col in ['Início', 'Fim', 'Data Reserva']:
+            if col in df_proximos_hospedes.columns:
+                df_proximos_hospedes[col] = pd.to_datetime(df_proximos_hospedes[col], dayfirst=True, errors='coerce')
+        
+        # Tenta garantir que colunas numéricas sejam números
+        for col in ['Dias', 'Pessoas']:
+            if col in df_proximos_hospedes.columns:
+                 df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='ignore')
+
+        # Definição das colunas para exibição (Ordem e existência)
+        desired_order = [
+            "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
+            "Dias", "Pessoas", "Total BT", "Diária BT", "Origem"
+        ]
+        
+        # Filtra apenas as colunas que realmente existem no DataFrame
+        cols_to_show = [c for c in desired_order if c in df_proximos_hospedes.columns]
+        
+        # Configuração visual das colunas
+        col_config = {
+            "Apartamento": st.column_config.TextColumn("Apto"),
+            "Início": st.column_config.DateColumn("Check-in", format="DD/MM/YYYY"),
+            "Fim": st.column_config.DateColumn("Check-out", format="DD/MM/YYYY"),
+            #"Data Reserva": st.column_config.DateColumn("Reserva", format="DD/MM/YYYY"),
+            "Dias até Check-in": st.column_config.NumberColumn("Dias p/ Chegar", format="%d dias", help="Dias restantes até o check-in"),
+            "Quem": st.column_config.TextColumn("Hóspede"),
+            "Origem": st.column_config.TextColumn("Canal"),
+            "Dias": st.column_config.NumberColumn("Noites"),
+            "Pessoas": st.column_config.NumberColumn("Pax"),
+            "Total BT": st.column_config.TextColumn("Total"),   # Mantém como texto para não quebrar formatação "R$" se vier string
+            "Diária BT": st.column_config.TextColumn("Diária"), # Mantém como texto
+        }
+
+        st.dataframe(
+            df_proximos_hospedes[cols_to_show], 
+            hide_index=True, 
+            use_container_width=True,
+            column_config=col_config
+        )
+    else:
+        st.info("Não foi possível carregar os próximos hóspedes (ou não há reservas futuras).")  
+    
+    st.divider()
+
     # --- EXIBIR TABELA DE ÚLTIMAS RESERVAS ---
     st.markdown("### 📋 Últimas Reservas (Top 3 por Apto)")
     
