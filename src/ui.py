@@ -37,6 +37,16 @@ def render_custom_css():
             div[data-baseweb="input"] {
                 font-size: 16px; /* Evita zoom automático no iOS */
             }
+            /* --- CORREÇÃO: Diminuir fonte do título principal (h1) no mobile --- */
+            h1 {
+                font-size: 1.5rem !important; /* Reduz para ~24px */
+                padding-top: 0.5rem !important;
+            }
+            /* --- CORREÇÃO: Diminuir fonte do subtítulo "Consultar Disponibilidade" (h3) --- */
+            h3 {
+                font-size: 1.1rem !important; /* Reduz para ~18px */
+                padding-top: 0.5rem !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
