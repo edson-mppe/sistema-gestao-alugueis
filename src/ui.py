@@ -10,7 +10,7 @@ def render_custom_css():
         /* --- CORREÇÃO DE ESPAÇO EM BRANCO (TOPO) --- */
         /* Reduz o padding padrão do Streamlit que empurra o conteúdo para baixo */
         .block-container {
-            padding-top: 3rem !important;
+            padding-top: 4rem !important;
             padding-bottom: 1rem !important;
             margin-top: 0rem !important;
         }
