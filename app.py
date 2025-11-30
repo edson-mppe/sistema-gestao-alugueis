@@ -311,6 +311,30 @@ if not df_reservas.empty:
             on_select="rerun"
         )
 
+        # --- BOTÕES AUTOMÁTICOS PARA CHECK-IN HOJE ---
+        hoje = datetime.now().date()
+        
+        # Filtra check-ins de hoje
+        if 'Início' in df_proximos_hospedes.columns:
+             checkins_hoje = df_proximos_hospedes[
+                df_proximos_hospedes['Início'].dt.date == hoje
+             ]
+             
+             if not checkins_hoje.empty:
+                 st.markdown("#### 🔔 Check-ins de Hoje")
+                 cols = st.columns(len(checkins_hoje))
+                 for idx, (_, row) in enumerate(checkins_hoje.iterrows()):
+                     apto = row['Apartamento']
+                     msg = f"Bom dia!. Hoje teremos chech-in no Apto {apto}"
+                     import urllib.parse
+                     msg_encoded = urllib.parse.quote(msg)
+                     phone = "558193275644"
+                     whatsapp_url = f"https://wa.me/{phone}?text={msg_encoded}"
+                     
+                     with cols[idx]:
+                        st.link_button(f"📲 Enviar WhatsApp (Apto {apto})", whatsapp_url, type="primary")
+
+        # --- SELEÇÃO MANUAL ---
         if len(event.selection.rows) > 0:
             selected_row_index = event.selection.rows[0]
             selected_row = df_proximos_hospedes[cols_to_show].iloc[selected_row_index]
@@ -318,7 +342,7 @@ if not df_reservas.empty:
             apto = selected_row["Apartamento"]
             
             # Formata a mensagem
-            msg = f"bom dia!. Hoje teremos chech-in no Apto {apto}"
+            msg = f"Bom dia!. Hoje teremos chech-in no Apto {apto}"
             
             # Codifica a mensagem para URL
             import urllib.parse
