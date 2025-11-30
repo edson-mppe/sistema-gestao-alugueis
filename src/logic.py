@@ -1,11 +1,25 @@
 import pandas as pd
-from icalendar import Calendar, Event
-from datetime import datetime, timedelta, date
-import os
 import plotly.express as px
 import plotly.graph_objects as go
-from src.config import CALENDARS_DIR, COLORS
-from src.utils import get_holidays, parse_pt_date
+from datetime import datetime, time, date, timedelta
+import os
+from icalendar import Calendar
+
+# Tenta importar utilitários, com fallback se não existirem
+try:
+    from src.utils import get_holidays, parse_pt_date
+except ImportError:
+    def get_holidays(years): return pd.DataFrame(columns=['Data', 'Feriado'])
+    def parse_pt_date(d): return pd.NaT
+
+# Mapa de meses para parse de datas em português
+MESES_MAP_REPLACE = {
+    'jan': '01', 'fev': '02', 'mar': '03', 'abr': '04', 
+    'mai': '05', 'jun': '06', 'jul': '07', 'ago': '08', 
+    'set': '09', 'out': '10', 'nov': '11', 'dez': '12'
+}
+
+# --- 1. Funções de Backend (ETL e Arquivos) ---
 
 def ler_calendario_ics(filepath):
     """
@@ -26,13 +40,13 @@ def ler_calendario_ics(filepath):
         end = component.get('dtend').dt
         summary = str(component.get('summary'))
         
-        # Normaliza datas para datetime (remove timezone se houver, ou converte date para datetime)
+        # Normaliza datas para datetime
         if isinstance(start, date) and not isinstance(start, datetime):
             start = datetime.combine(start, datetime.min.time())
         if isinstance(end, date) and not isinstance(end, datetime):
             end = datetime.combine(end, datetime.min.time())
             
-        # Remove timezone info para comparação simples
+        # Remove timezone info
         start = start.replace(tzinfo=None)
         end = end.replace(tzinfo=None)
 
@@ -52,7 +66,7 @@ def merge_ical_files(file_ota, file_google, output_filename):
     df_ota = ler_calendario_ics(file_ota)
     df_google = ler_calendario_ics(file_google)
     
-    # Adiciona origem para rastreio (opcional, mas útil)
+    # Adiciona origem para rastreio
     if not df_ota.empty:
         df_ota['Origem'] = 'OTA'
     if not df_google.empty:
@@ -76,22 +90,22 @@ def merge_ical_files(file_ota, file_google, output_filename):
     df_merged = df_merged.drop_duplicates(subset=['Início', 'Fim'], keep='first')
     
     # Salva o merged
-    from src.data_loader import save_dataframe_to_ical
-    save_dataframe_to_ical(df_merged, output_filename)
+    try:
+        from src.data_loader import save_dataframe_to_ical
+        save_dataframe_to_ical(df_merged, output_filename)
+    except ImportError:
+        pass
     
     return df_merged
 
 def verificar_inconsistencias(df_merged):
     """
     Verifica sobreposições de reservas no DataFrame mesclado.
-    Retorna DataFrame com as inconsistências.
     """
     if df_merged.empty:
         return pd.DataFrame()
         
     inconsistencias = []
-    
-    # Ordena por data
     df = df_merged.sort_values('Início')
     
     for i in range(len(df)):
@@ -99,12 +113,9 @@ def verificar_inconsistencias(df_merged):
             reserva1 = df.iloc[i]
             reserva2 = df.iloc[j]
             
-            # Se a reserva 2 começa depois que a 1 termina, não há mais conflitos possíveis com a 1
             if reserva2['Início'] >= reserva1['Fim']:
                 break
                 
-            # Se há sobreposição (e não são idênticas, pois drop_duplicates já rodou)
-            # Sobreposição: Inicio1 < Fim2 AND Inicio2 < Fim1
             if (reserva1['Início'] < reserva2['Fim']) and (reserva2['Início'] < reserva1['Fim']):
                 inconsistencias.append({
                     'Reserva 1': f"{reserva1['Summary']} ({reserva1['Início']} - {reserva1['Fim']})",
@@ -119,252 +130,57 @@ def tratar_dataframe_consolidado(df):
     """
     Limpa e padroniza o DataFrame consolidado de todas as abas.
     """
-    if df.empty:
-        return df
-        
-    # Remove linhas vazias essenciais
-    df = df.dropna(subset=['Início', 'Fim'])
+    if df is None or df.empty:
+        return pd.DataFrame()
     
-    # Converte datas
-    def parse_date_br(date_str):
-        if not isinstance(date_str, str): return pd.NaT
-        # Tenta formato DD/MM/YYYY HH:MM (vindo da planilha consolidada)
+    df_tratado = df.copy()
+
+    # Remove linhas vazias essenciais
+    if 'Início' in df_tratado.columns:
+        df_tratado = df_tratado.dropna(subset=['Início'])
+        df_tratado = df_tratado[df_tratado['Início'].astype(str).str.strip() != '']
+    
+    def parse_flexible_date(x):
+        if pd.isna(x) or x == '': return pd.NaT
+        str_x = str(x).strip().lower()
         try:
-            return pd.to_datetime(date_str, format='%d/%m/%Y %H:%M')
-        except:
+            return datetime.strptime(str_x, '%d/%m/%Y %H:%M')
+        except ValueError:
             pass
-        # Tenta formato português (DD-Mês.YY-Dia)
-        dt = parse_pt_date(date_str)
-        if pd.notna(dt):
-            return dt
-        # Tenta parsing genérico
+        for pt, num in MESES_MAP_REPLACE.items():
+            if pt in str_x:
+                str_x = str_x.replace(pt, num)
         try:
-            return pd.to_datetime(date_str, dayfirst=True)
+            dt = pd.to_datetime(str_x, dayfirst=True, errors='coerce')
+            return dt
         except:
             return pd.NaT
 
-    # Se as colunas já não forem datetime (do gsheets vem como string)
-    if df['Início'].dtype == object:
-        df['Início'] = df['Início'].apply(parse_date_br)
-    if df['Fim'].dtype == object:
-        df['Fim'] = df['Fim'].apply(parse_date_br)
-        
-    # Remove linhas onde a data não pôde ser convertida (NaT)
-    df = df.dropna(subset=['Início', 'Fim'])
-        
-    # Adiciona horários padrão se não tiverem (15h para Início, 11h para Fim)
-    df['Início'] = df['Início'].apply(lambda x: x + timedelta(hours=15) if pd.notnull(x) and x.hour == 0 else x)
-    df['Fim'] = df['Fim'].apply(lambda x: x + timedelta(hours=11) if pd.notnull(x) and x.hour == 0 else x)
+    if 'Início' in df_tratado.columns:
+        df_tratado['Início'] = df_tratado['Início'].apply(parse_flexible_date)
+    if 'Fim' in df_tratado.columns:
+        df_tratado['Fim'] = df_tratado['Fim'].apply(parse_flexible_date)
 
-    # Marca reservas passadas como 'Concluído'
+    df_tratado = df_tratado.dropna(subset=['Início', 'Fim'])
+
+    def add_default_hours(dt, hour):
+        if pd.notnull(dt) and dt.time() == time(0, 0):
+            return dt + timedelta(hours=hour)
+        return dt
+
+    df_tratado['Início'] = df_tratado['Início'].apply(lambda x: add_default_hours(x, 15))
+    df_tratado['Fim'] = df_tratado['Fim'].apply(lambda x: add_default_hours(x, 11))
+
     agora = datetime.now()
-    if 'Status' not in df.columns:
-        df['Status'] = ''
-    df.loc[df['Fim'] < agora, 'Status'] = 'Concluído'
-    
-    # Garante que a coluna Origem exista para o gráfico
-    if 'Origem' not in df.columns:
-        df['Origem'] = 'Desconhecido'
-
-    return df
-
-def create_gantt_chart(df, is_mobile=False):
-    """
-    Gera o gráfico de Gantt com as reservas (baseado no notebook).
-    """
-    if df.empty:
-        return None
+    if 'Status' not in df_tratado.columns:
+        df_tratado['Status'] = ''
         
-    # --- Definições de Data ---
-    hoje = pd.to_datetime('today').normalize()
-    agora = pd.to_datetime('now')
+    df_tratado.loc[df_tratado['Fim'] < agora, 'Status'] = 'Concluído'
     
-    # Zoom Fixo: 10 dias para mobile, 20 dias para desktop
-    days_back = 2
-    days_forward = 8 if is_mobile else 18
-    
-    zoom_inicio = hoje - pd.Timedelta(days=days_back)
-    zoom_fim = hoje + pd.Timedelta(days=days_forward)
+    if 'Origem' not in df_tratado.columns:
+        df_tratado['Origem'] = 'Desconhecido'
 
-    # --- Cores ---
-    colors = {
-        'Booking': 'rgba(46, 137, 205, 0.8)', 
-        'Airbnb': 'rgba(255, 90, 95, 0.8)',      
-        'Direto': 'rgba(75, 181, 67, 0.8)', 
-        'Outro': 'rgba(255, 0, 0, 0.8)'          
-    }
-
-    # --- Preparação dos Dados ---
-    try:
-        df_grafico = df.copy()
-        df_grafico['Início'] = pd.to_datetime(df_grafico['Início'], errors='coerce')
-        df_grafico['Fim'] = pd.to_datetime(df_grafico['Fim'], errors='coerce')
-        df_grafico = df_grafico.dropna(subset=['Início', 'Fim'])
-    except Exception as e:
-        return None
-
-    # Filtra apenas reservas não concluídas
-    if 'Status' in df_grafico.columns:
-        df_grafico = df_grafico[df_grafico['Status'] != 'Concluído']
-    else:
-        # Fallback: se não houver coluna Status, filtra por data
-        df_grafico = df_grafico[df_grafico['Fim'] >= hoje]
-    
-    if df_grafico.empty: 
-        return None
-
-    df_grafico['Texto_Barra'] = (
-        df_grafico['Início'].dt.day.astype(str) + '-' + df_grafico['Fim'].dt.day.astype(str)
-    )
-    ultima_data_reserva = df_grafico['Fim'].max()
-    num_apartamentos = len(df_grafico['Apartamento'].unique())
-    
-    # Altura dinâmica ajustada para mobile (barras mais altas)
-    base_height = 400 if is_mobile else 300
-    per_apt_height = 80 if is_mobile else 50
-    altura_dinamica = base_height + (num_apartamentos * per_apt_height)
-
-    # --- CRIAÇÃO DO GRÁFICO ---
-    fig = px.timeline(df_grafico, x_start="Início", x_end="Fim", y="Apartamento",
-                      color="Origem", title="Mapa de Ocupação", color_discrete_map=colors,
-                      text="Texto_Barra")
-    
-    fig.update_traces(textposition='inside', textfont=dict(color='black', size=11))
-
-    # --- FUNDO ALTERNADO ---
-    data_inicio_fundo = zoom_inicio
-    data_fim_fundo = max(zoom_fim, ultima_data_reserva) + pd.Timedelta(days=5)
-    dias_totais = (data_fim_fundo - data_inicio_fundo).days + 1
-    
-    COR_FERIADO, COR_DOMINGO, COR_SABADO, COR_DIA_UTIL = "#FFEBEE", "#E0E0E0", "#F5F5F5", "white"
-    set_datas_feriados = set()
-    anos = []
-    df_f = pd.DataFrame()
-    try:
-        anos = sorted(list(set(df_grafico['Início'].dt.year.tolist() + df_grafico['Fim'].dt.year.tolist())))
-        if anos:
-            df_f = get_holidays(anos)
-            for _, r in df_f.iterrows():
-                d = datetime.strptime(r['Data'], '%d/%m/%Y').date() if isinstance(r['Data'], str) else r['Data'].date()
-                set_datas_feriados.add(d)
-    except: 
-        pass
-
-    for i in range(dias_totais):
-        dia = data_inicio_fundo + pd.Timedelta(days=i)
-        cor = COR_DIA_UTIL
-        if dia.date() in set_datas_feriados: 
-            cor = COR_FERIADO
-        elif dia.weekday() == 6: 
-            cor = COR_DOMINGO
-        elif dia.weekday() == 5: 
-            cor = COR_SABADO
-        
-        if cor != "white":
-            fig.add_shape(type="rect", x0=dia, y0=0, x1=dia + pd.Timedelta(days=1), y1=1,
-                          xref="x", yref="paper", fillcolor=cor, layer="below", line_width=0)
-        
-        if dia.day == 1: # Mês
-            nome_mes = dia.strftime('%B').capitalize()
-            ano_mes = dia.strftime('%Y')
-            fig.add_annotation(x=dia, y=1, yref="paper", text=f"<b>{nome_mes} {ano_mes}</b>",
-                               showarrow=False, xanchor="left", yanchor="bottom", yshift=45, font=dict(color="black", size=14))
-            fig.add_shape(type="line", x0=dia, y0=0, x1=dia, y1=1, xref="x", yref="paper", line=dict(color="black", width=1.5), opacity=0.3)
-
-    # --- Traço Fantasma ---
-    fig.add_trace(go.Scatter(x=[zoom_inicio, zoom_fim], y=[df_grafico['Apartamento'].iloc[0]]*2, 
-                   mode='markers', xaxis='x2', opacity=0, showlegend=False, hoverinfo='skip'))
-
-    # --- Linha Agora ---
-    x_agora = agora.to_pydatetime()
-    fig.add_shape(type="line", x0=x_agora, y0=0, x1=x_agora, y1=1, xref="x", yref="paper", line=dict(color="black", width=1.5, dash="dash"))
-    fig.add_annotation(x=x_agora, y=0, yref="paper", text="Agora", showarrow=False, font=dict(color="black", size=10, weight="bold"), xanchor="right", yanchor="bottom")
-
-    # --- Feriados (Texto) ---
-    try:
-        if anos and not df_f.empty:
-            for _, r in df_f.iterrows():
-                dt = datetime.strptime(r['Data'], '%d/%m/%Y') if isinstance(r['Data'], str) else r['Data']
-                if zoom_inicio <= dt <= ultima_data_reserva:
-                    dt12 = dt.replace(hour=12, minute=0, second=0)
-                    fig.add_shape(type="line", x0=dt12, y0=0, x1=dt12, y1=1, xref="x", yref="paper", line=dict(color="gray", width=1, dash="dot"), opacity=0.4)
-                    fig.add_annotation(x=dt12, y=1, yref="paper", text=r['Feriado'], showarrow=False, xanchor="left", yanchor="top", textangle=-90, font=dict(color="#555555", size=9))
-    except: 
-        pass
-
-    # --- Layout ---
-    ordem_apartamentos = ['AP-101', 'AP-201', 'CBL004', 'SM-C108', 'SM-D014']
-    
-    # Configurações condicionais para Mobile vs Desktop
-    margin_l = 10 if is_mobile else 50
-    show_y_labels = not is_mobile
-    
-    fig.update_layout(
-        title_text="Mapa de Reservas", 
-        height=altura_dinamica, 
-        xaxis_rangeslider_visible=False, 
-        yaxis_autorange='reversed', 
-        hovermode='x unified', 
-        barcornerradius=5, 
-        plot_bgcolor='white',
-        dragmode='pan', 
-        margin=dict(t=100, b=40, l=margin_l, r=20), 
-        xaxis=dict(
-            title="", 
-            side="bottom", 
-            showgrid=True, 
-            gridcolor="#E5E5E5", 
-            showticklabels=False, 
-            dtick=86400000, 
-            range=[zoom_inicio, zoom_fim],
-            fixedrange=False 
-        ),
-        xaxis2=dict(
-            title="", 
-            side="top", 
-            overlaying="x", 
-            showgrid=False, 
-            matches="x", 
-            tickformat='<b>%d</b><br>%a', 
-            tickangle=0, 
-            dtick=86400000, 
-            ticklabelmode="period",
-            fixedrange=False
-        ),
-        yaxis=dict(
-            title="", 
-            showgrid=True, 
-            gridcolor="#E5E5E5", 
-            categoryorder='array', 
-            categoryarray=ordem_apartamentos,
-            fixedrange=True,
-            showticklabels=show_y_labels # Oculta labels no mobile
-        ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1)
-    )
-    
-    # Adiciona nomes dos apartamentos dentro do gráfico no modo mobile
-    if is_mobile:
-        for apt in ordem_apartamentos:
-            fig.add_annotation(
-                x=0, # Início do gráfico (esquerda)
-                y=apt,
-                xref="paper",
-                yref="y",
-                text=f"<b>{apt}</b>",
-                showarrow=False,
-                xanchor="left",
-                yanchor="bottom", # Fica um pouco acima da linha
-                yshift=5, # Leve ajuste para cima
-                xshift=5, # Leve ajuste para direita da borda
-                font=dict(size=12, color="black"),
-                bgcolor="rgba(255, 255, 255, 0.7)", # Fundo semi-transparente para leitura
-                bordercolor="rgba(0,0,0,0.1)",
-                borderwidth=1,
-                borderpad=2
-            )
-    
-    return fig
+    return df_tratado
 
 def verificar_disponibilidade(df, data_inicio, data_fim):
     """
@@ -376,16 +192,198 @@ def verificar_disponibilidade(df, data_inicio, data_fim):
     dt_fim = pd.to_datetime(data_fim)
     
     df_temp = df.copy()
-    df_temp['Início'] = pd.to_datetime(df_temp['Início'], errors='coerce', dayfirst=True)
-    df_temp['Fim'] = pd.to_datetime(df_temp['Fim'], errors='coerce', dayfirst=True)
+    if df_temp['Início'].dtype == object:
+        df_temp['Início'] = pd.to_datetime(df_temp['Início'], errors='coerce')
+    if df_temp['Fim'].dtype == object:
+        df_temp['Fim'] = pd.to_datetime(df_temp['Fim'], errors='coerce')
+        
     df_temp = df_temp.dropna(subset=['Início', 'Fim'])
-    
     todos_aptos = sorted(df_temp['Apartamento'].unique().tolist())
     
-    # Lógica de conflito: (Inicio_Reserva < Fim_Busca) & (Fim_Reserva > Inicio_Busca)
     conflitos = df_temp[(df_temp['Início'] < dt_fim) & (df_temp['Fim'] > dt_inicio)]
-    
     aptos_ocupados = sorted(list(set(conflitos['Apartamento'].unique())))
     aptos_livres = [ap for ap in todos_aptos if ap not in aptos_ocupados]
     
     return aptos_livres, aptos_ocupados
+
+# --- 2. Função de Gráfico (Frontend Logic) ---
+
+def create_gantt_chart(df_grafico, is_mobile=False):
+    """
+    Gera o gráfico de Gantt (Timeline) com otimizações visuais para Mobile.
+    """
+    if df_grafico is None or df_grafico.empty:
+        return None
+
+    df = df_grafico.copy()
+    
+    for col in ['Início', 'Fim']:
+        if df[col].dtype == object:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+    df = df.dropna(subset=['Início', 'Fim'])
+
+    hoje = pd.to_datetime('today').normalize()
+    agora = pd.to_datetime('now')
+    
+    df = df[df['Fim'] >= hoje]
+    if df.empty: return None
+
+    # --- CONFIGURAÇÕES VISUAIS ---
+    if is_mobile:
+        # --- Configurações Mobile ---
+        row_height = 30       # Altura compacta
+        bar_gap = 0.6         # Barras finas
+        font_size = 10
+        margin_l = 0          
+        margin_r = 0          
+        margin_t = 130        # Espaço extra no topo para legendas e datas
+        base_height = 200     
+        tick_angle = 0        
+        days_forward = 10     
+        show_y_labels = False 
+        legend_y = 1.25       # Legenda bem acima
+    else:
+        # --- Configurações Desktop ---
+        row_height = 50
+        bar_gap = 0.15        
+        font_size = 12
+        margin_l = 10
+        margin_r = 10
+        margin_t = 140        
+        base_height = 300
+        tick_angle = 0
+        days_forward = 20
+        show_y_labels = True
+        legend_y = 1.15       
+
+    df['Texto_Barra'] = df['Início'].dt.day.astype(str) + '-' + df['Fim'].dt.day.astype(str)
+    num_apartamentos = len(df['Apartamento'].unique())
+    altura_dinamica = base_height + (num_apartamentos * row_height)
+    
+    colors = {
+        'Booking': 'rgba(46, 137, 205, 0.8)', 
+        'Airbnb': 'rgba(255, 90, 95, 0.8)',      
+        'Direto': 'rgba(75, 181, 67, 0.8)', 
+        'Outro': 'rgba(255, 0, 0, 0.8)'          
+    }
+
+    zoom_inicio = hoje - pd.Timedelta(days=2)
+    zoom_fim = hoje + pd.Timedelta(days=days_forward)
+    ordem_apartamentos = sorted(df['Apartamento'].unique())
+
+    # --- CRIAÇÃO DO GRÁFICO ---
+    fig = px.timeline(
+        df, 
+        x_start="Início", 
+        x_end="Fim", 
+        y="Apartamento",
+        color="Origem", 
+        title="Mapa de Reservas" if not is_mobile else "",
+        color_discrete_map=colors,
+        text="Texto_Barra"
+    )
+    
+    fig.update_traces(
+        textposition='inside', 
+        textfont=dict(color='black', size=font_size)
+    )
+
+    # --- Fundo e Elementos Visuais ---
+    x_agora = agora.to_pydatetime()
+    fig.add_shape(
+        type="line", x0=x_agora, y0=0, x1=x_agora, y1=1, 
+        xref="x", yref="paper", 
+        line=dict(color="red", width=2, dash="dot")
+    )
+    
+    # Renderização de fundo (Feriados/Fim de semana)
+    data_inicio_fundo = zoom_inicio
+    data_fim_fundo = max(zoom_fim, df['Fim'].max()) + pd.Timedelta(days=5)
+    dias_totais = (data_fim_fundo - data_inicio_fundo).days + 1
+    
+    COR_DOMINGO, COR_SABADO = "#E0E0E0", "#F5F5F5"
+    
+    for i in range(min(dias_totais, 60)): 
+        dia = data_inicio_fundo + pd.Timedelta(days=i)
+        cor = None
+        if dia.weekday() == 6: cor = COR_DOMINGO
+        elif dia.weekday() == 5: cor = COR_SABADO
+        
+        if cor:
+            fig.add_shape(type="rect", x0=dia, y0=0, x1=dia + pd.Timedelta(days=1), y1=1,
+                          xref="x", yref="paper", fillcolor=cor, layer="below", line_width=0)
+        
+        # Linha vertical separadora de meses e Nome do Mês
+        if dia.day == 1:
+            nome_mes = dia.strftime('%b').capitalize()
+            fig.add_annotation(
+                x=dia, y=1, yref="paper", text=f"<b>{nome_mes}</b>",
+                showarrow=False, xanchor="left", yanchor="bottom", 
+                yshift=40, # Texto do mês bem elevado
+                font=dict(color="black", size=10)
+            )
+            fig.add_shape(type="line", x0=dia, y0=0, x1=dia, y1=1, xref="x", yref="paper", line=dict(color="black", width=1), opacity=0.3)
+
+    # --- Layout ---
+    fig.update_layout(
+        title_text="Mapa de Reservas" if not is_mobile else "", 
+        height=altura_dinamica, 
+        bargap=bar_gap, 
+        xaxis_rangeslider_visible=False, 
+        yaxis_autorange='reversed', 
+        hovermode='x unified', 
+        barcornerradius=5, 
+        plot_bgcolor='white',
+        dragmode='pan', 
+        margin=dict(t=margin_t, b=20, l=margin_l, r=margin_r), 
+        
+        # --- Configuração do Eixo X (No Topo) ---
+        xaxis=dict(
+            title="", 
+            side="top", 
+            showgrid=True, 
+            gridcolor="#E5E5E5", 
+            tickformat='<b>%d</b><br>%a', 
+            showticklabels=True, 
+            tickangle=tick_angle,
+            dtick=86400000, 
+            range=[zoom_inicio, zoom_fim],
+            fixedrange=False 
+        ),
+        
+        # Configuração do Eixo Y
+        yaxis=dict(
+            title="", 
+            showgrid=True, 
+            gridcolor="#E5E5E5", 
+            categoryorder='array', 
+            categoryarray=ordem_apartamentos,
+            fixedrange=True,
+            showticklabels=show_y_labels
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=legend_y, xanchor="right", x=1)
+    )
+    
+    # Adiciona nomes dos apartamentos dentro do gráfico no modo mobile
+    # FIX: xref="paper" e x=0 fixam o texto na esquerda da tela (Sticky Labels)
+    if is_mobile:
+        for apt in ordem_apartamentos:
+            fig.add_annotation(
+                x=0, # Fixo na esquerda da tela (paper coordinates)
+                y=apt,
+                xref="paper", # IMPORTANTE: prende na tela, não na data
+                yref="y",     # Mantém alinhado verticalmente com a linha do apartamento
+                text=f"<b>{apt}</b>",
+                showarrow=False,
+                xanchor="left",
+                yanchor="bottom", 
+                yshift=5, 
+                xshift=5, 
+                font=dict(size=12, color="black"),
+                bgcolor="rgba(255, 255, 255, 0.8)", # Mais opaco para não misturar com as barras
+                bordercolor="rgba(0,0,0,0.1)",
+                borderwidth=1,
+                borderpad=2
+            )
+    
+    return fig

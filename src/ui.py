@@ -54,7 +54,7 @@ def render_sidebar(last_sync_date, on_sync_click, on_mobile_mode_change=None):
         st.title("Controles")
         
         # Toggle para Modo Mobile
-        st.checkbox("📱 Modo Mobile", key="mobile_mode", help="Ativa otimizações para telas pequenas (Galaxy S25 Ultra)", on_change=on_mobile_mode_change)
+        st.checkbox("📱 Modo Mobile", value=True, key="mobile_mode", help="Ativa otimizações para telas pequenas (Galaxy S25 Ultra)", on_change=on_mobile_mode_change)
         
         if st.button("🔄 Sincronizar Dados Agora"):
             on_sync_click()
