@@ -6,6 +6,9 @@ token.json
 macro-raceway-431917-d6-ec9a58be7589.json
 desktop.ini
 refs/desktop.ini
+refs/remotes/desktop.ini
+refs/remotes/origin/desktop.ini
+refs/tags/desktop.ini
 
 # Python
 __pycache__/
