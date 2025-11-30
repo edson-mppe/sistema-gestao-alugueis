@@ -152,9 +152,9 @@ def _render_filter_content(all_apts, on_filter_change, on_verify_click):
     with col_dates:
         c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
-            st.date_input("Check-in", key="checkin_input", on_change=lambda: st.session_state.update(checkout_input=st.session_state.checkin_input + timedelta(days=1)))
+            st.date_input("Check-in", key="checkin_input", format="DD/MM/YYYY", on_change=lambda: st.session_state.update(checkout_input=st.session_state.checkin_input + timedelta(days=1)))
         with c2:
-            st.date_input("Check-out", key="checkout_input")
+            st.date_input("Check-out", key="checkout_input", format="DD/MM/YYYY")
         with c3:
             st.write("") 
             st.write("") 

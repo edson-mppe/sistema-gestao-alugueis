@@ -109,6 +109,79 @@ def baixar_dados_google_sheet(tab_name):
         st.error(f"Erro ao baixar dados da aba '{tab_name}': {e}")
         return pd.DataFrame()
 
+def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
+    """
+    Baixa as 3 reservas mais recentes de cada apartamento da aba 'Reservas Consolidadas'.
+    Retorna DataFrame com colunas específicas e dias desde a reserva.
+    """
+    try:
+        gc = authenticate_google_sheets()
+        if not gc: return pd.DataFrame()
+        
+        sh = gc.open_by_key(SHEET_KEY)
+        tab_name = "Reservas Consolidadas"
+        try:
+            worksheet = sh.worksheet(tab_name)
+        except gspread.WorksheetNotFound:
+            st.warning(f"Aba '{tab_name}' não encontrada.")
+            return pd.DataFrame()
+
+        all_values = worksheet.get_all_values()
+        
+        if len(all_values) < 1:
+            return pd.DataFrame()
+            
+        # Busca cabeçalho (reutilizando lógica para robustez)
+        header_row_index = -1
+        for i, row in enumerate(all_values[:10]):
+            if "Início" in row and "Fim" in row:
+                header_row_index = i
+                break
+        
+        if header_row_index != -1:
+            headers = all_values[header_row_index]
+            data = all_values[header_row_index + 1:]
+        else:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data, columns=headers)
+        
+        # Colunas desejadas
+        target_cols = ['Apartamento', 'Início', 'Fim', 'Dias', 'Pessoas', 'Quem', 'Origem', 'Data Reserva']
+        # Filtra colunas existentes
+        existing_cols = [c for c in target_cols if c in df.columns]
+        
+        if not existing_cols:
+            return pd.DataFrame()
+            
+        df = df[existing_cols].copy()
+        
+        if 'Data Reserva' in df.columns and 'Apartamento' in df.columns:
+            # Converte para datetime para ordenação e cálculo
+            df['Data Reserva'] = pd.to_datetime(df['Data Reserva'], dayfirst=True, errors='coerce')
+            
+            # Remove linhas sem data de reserva válida para o cálculo
+            df = df.dropna(subset=['Data Reserva'])
+            
+            # Ordena por Data Reserva (mais recente primeiro) e pega top 3 por Apartamento
+            df = df.sort_values('Data Reserva', ascending=False)
+            df = df.groupby('Apartamento').head(3).reset_index(drop=True)
+            
+            # Cálculo de dias passados ('Dias Decorridos')
+            now = pd.Timestamp.now()
+            df['Dias Decorridos'] = (now - df['Data Reserva']).dt.days
+            
+            return df
+        else:
+            # Se não tiver as colunas essenciais, retorna vazio ou o que tiver
+            if 'Data Reserva' not in df.columns:
+                st.warning("Coluna 'Data Reserva' não encontrada para cálculo de recência.")
+            return df
+
+    except Exception as e:
+        st.error(f"Erro ao buscar últimas reservas: {e}")
+        return pd.DataFrame()
+
 def ler_abas_planilha(abas_map):
     """
     Lê múltiplas abas e retorna um dicionário {nome_aba: dataframe}.

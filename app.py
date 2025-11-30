@@ -1,11 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components # Importação necessária para o hack do idioma
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # Importações dos módulos locais
 from src.services import sincronizar_dados_completo
-from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha
+from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas
 from src.logic import tratar_dataframe_consolidado, create_gantt_chart, verificar_disponibilidade
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
@@ -16,6 +17,14 @@ st.set_page_config(
     page_icon="🏢",
     layout="wide"
 )
+
+# --- HACK: Definir idioma para pt-BR ---
+# Isso altera o atributo 'lang' do HTML para evitar que o navegador sugira tradução
+components.html("""
+    <script>
+        window.parent.document.documentElement.lang = 'pt-BR';
+    </script>
+""", height=0)
 
 # --- Inicialização do Session State ---
 if 'gantt_fig' not in st.session_state:
@@ -31,9 +40,7 @@ if 'checkin_input' not in st.session_state:
 if 'checkout_input' not in st.session_state:
     st.session_state.checkout_input = st.session_state.checkin_input + timedelta(days=1)
 
-# Garante que o modo mobile comece como True no estado se ainda não existir
-if 'mobile_mode' not in st.session_state:
-    st.session_state.mobile_mode = True
+# A inicialização manual de 'mobile_mode' foi removida para evitar conflito com o valor padrão do widget no ui.py
 
 # --- CARREGAMENTO DE DADOS ---
 @st.cache_data(ttl=300)
@@ -251,6 +258,35 @@ if not df_reservas.empty:
 
     # Renderiza Gráfico
     ui.render_gantt_chart()
+    
+    # --- EXIBIR TABELA DE ÚLTIMAS RESERVAS ---
+    st.markdown("### 📋 Últimas Reservas (Top 3 por Apto)")
+    
+    with st.spinner("Buscando reservas recentes..."):
+        # Chama a função importada do gsheets_api
+        df_recents = baixar_ultimas_reservas_consolidadas()
+        
+    if not df_recents.empty:
+        # Garante que as colunas de data sejam datetime para ordenação correta
+        for col in ['Início', 'Fim', 'Data Reserva']:
+            if col in df_recents.columns:
+                # ADICIONADO: dayfirst=True para evitar aviso de parser warning com datas DD/MM/YYYY
+                df_recents[col] = pd.to_datetime(df_recents[col], dayfirst=True, errors='coerce')
+
+        # Exibe a tabela utilizando st.dataframe com column_config para formatação
+        st.dataframe(
+            df_recents, 
+            hide_index=True,
+            width="stretch", # Atualizado: width="stretch" em vez de use_container_width=True
+            column_config={
+                "Início": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
+                "Fim": st.column_config.DateColumn("Fim", format="DD/MM/YYYY"),
+                "Data Reserva": st.column_config.DateColumn("Data Reserva", format="DD/MM/YYYY"),
+                "Dias Decorridos": st.column_config.NumberColumn("Dias Decorridos", format="%d dias")
+            }
+        )
+    else:
+        st.info("Não foi possível carregar as reservas recentes.")
 
 else:
     st.info("Nenhuma reserva encontrada. Clique em 'Sincronizar Dados Agora' na barra lateral.")
