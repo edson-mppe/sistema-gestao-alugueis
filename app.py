@@ -276,7 +276,7 @@ if not df_reservas.empty:
         # Tenta garantir que colunas numéricas sejam números
         for col in ['Dias', 'Pessoas']:
             if col in df_proximos_hospedes.columns:
-                 df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='ignore')
+                 df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='coerce')
 
         # Definição das colunas para exibição (Ordem e existência)
         desired_order = [
