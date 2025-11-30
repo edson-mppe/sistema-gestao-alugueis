@@ -8,9 +8,9 @@ def render_custom_css():
     st.markdown("""
     <style>
         /* --- CORREÇÃO DE ESPAÇO EM BRANCO (TOPO) --- */
-        /* Reduz o padding padrão do Streamlit que empurra o conteúdo para baixo */
+        /* Configuração padrão para Desktop */
         .block-container {
-            padding-top: 4rem !important;
+            padding-top: 2.5rem !important;
             padding-bottom: 1rem !important;
             margin-top: 0rem !important;
         }
@@ -32,9 +32,10 @@ def render_custom_css():
         }
         /* Mobile Optimizations */
         @media (max-width: 768px) {
-            /* Ajuste fino para mobile: ainda menos espaço se necessário */
+            /* Ajuste fino para mobile */
+            /* AUMENTADO para evitar corte pelo header do Streamlit Cloud */
             .block-container {
-                padding-top: 0.5rem !important;
+                padding-top: 2.5rem !important; 
             }
             
             .stButton>button {
