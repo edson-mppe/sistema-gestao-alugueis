@@ -211,6 +211,7 @@ def verificar_disponibilidade(df, data_inicio, data_fim):
 def create_gantt_chart(df_grafico, is_mobile=False):
     """
     Gera o gráfico de Gantt (Timeline) com otimizações visuais para Mobile.
+    Agora destaca feriados (com nome na vertical), sábados e domingos.
     """
     if df_grafico is None or df_grafico.empty:
         return None
@@ -267,6 +268,7 @@ def create_gantt_chart(df_grafico, is_mobile=False):
         'Outro': 'rgba(255, 0, 0, 0.8)'          
     }
 
+    # Range inicial do eixo X (apenas para visualização inicial)
     zoom_inicio = hoje - pd.Timedelta(days=2)
     zoom_fim = hoje + pd.Timedelta(days=days_forward)
     ordem_apartamentos = sorted(df['Apartamento'].unique())
@@ -296,22 +298,69 @@ def create_gantt_chart(df_grafico, is_mobile=False):
         line=dict(color="red", width=2, dash="dot")
     )
     
-    # Renderização de fundo (Feriados/Fim de semana)
+    # --- PREPARAÇÃO DOS FERIADOS E FUNDO ---
+    
+    # 1. Definir até onde vamos pintar o fundo (180 dias ou +30 dias após última reserva)
     data_inicio_fundo = zoom_inicio
-    data_fim_fundo = max(zoom_fim, df['Fim'].max()) + pd.Timedelta(days=5)
+    data_fim_fundo = max(hoje + pd.Timedelta(days=180), df['Fim'].max() + pd.Timedelta(days=30))
     dias_totais = (data_fim_fundo - data_inicio_fundo).days + 1
     
-    COR_DOMINGO, COR_SABADO = "#E0E0E0", "#F5F5F5"
+    # 2. Buscar feriados e mapear nomes
+    anos_feriados = list(range(data_inicio_fundo.year, data_fim_fundo.year + 2))
+    df_feriados = get_holidays(years=anos_feriados)
     
-    for i in range(min(dias_totais, 60)): 
+    # Cria um dicionário (data -> nome) para busca e exibição
+    dict_feriados = {}
+    if not df_feriados.empty and 'Data' in df_feriados.columns:
+        # A Data vem como string 'dd/mm/yyyy' do utils.py, precisamos converter para date object
+        for idx, row in df_feriados.iterrows():
+            try:
+                d_obj = datetime.strptime(row['Data'], '%d/%m/%Y').date()
+                dict_feriados[d_obj] = row['Feriado']
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Cores
+    COR_DOMINGO = "#E0E0E0"
+    COR_SABADO = "#F5F5F5"
+    COR_FERIADO = "#FFCDD2" # Vermelho claro/pastel
+    
+    # 4. Loop de renderização (Percorre o período estendido)
+    for i in range(dias_totais): 
         dia = data_inicio_fundo + pd.Timedelta(days=i)
+        dia_date = dia.date()
+        
         cor = None
-        if dia.weekday() == 6: cor = COR_DOMINGO
-        elif dia.weekday() == 5: cor = COR_SABADO
+        holiday_name = None
+        
+        # Lógica de prioridade: Feriado > Domingo > Sábado
+        if dia_date in dict_feriados:
+            cor = COR_FERIADO
+            holiday_name = dict_feriados[dia_date]
+        elif dia.weekday() == 6: 
+            cor = COR_DOMINGO
+        elif dia.weekday() == 5: 
+            cor = COR_SABADO
         
         if cor:
+            # Desenha o fundo
             fig.add_shape(type="rect", x0=dia, y0=0, x1=dia + pd.Timedelta(days=1), y1=1,
                           xref="x", yref="paper", fillcolor=cor, layer="below", line_width=0)
+            
+            # Se for feriado, escreve o nome na vertical
+            if holiday_name:
+                fig.add_annotation(
+                    x=dia + pd.Timedelta(hours=12), # Centro do dia
+                    y=0.5, # Centro da altura
+                    xref="x",
+                    yref="paper",
+                    text=holiday_name.upper(), # Uppercase para ficar mais legível
+                    showarrow=False,
+                    textangle=-90, # Texto na vertical (lendo de cima para baixo)
+                    xanchor="center",
+                    yanchor="middle",
+                    font=dict(size=10, color="rgba(0, 0, 0, 0.4)") # Cinza translúcido discreto
+                )
         
         # Linha vertical separadora de meses e Nome do Mês
         if dia.day == 1:
@@ -319,7 +368,7 @@ def create_gantt_chart(df_grafico, is_mobile=False):
             fig.add_annotation(
                 x=dia, y=1, yref="paper", text=f"<b>{nome_mes}</b>",
                 showarrow=False, xanchor="left", yanchor="bottom", 
-                yshift=40, # Texto do mês bem elevado
+                yshift=40,
                 font=dict(color="black", size=10)
             )
             fig.add_shape(type="line", x0=dia, y0=0, x1=dia, y1=1, xref="x", yref="paper", line=dict(color="black", width=1), opacity=0.3)
@@ -347,6 +396,7 @@ def create_gantt_chart(df_grafico, is_mobile=False):
             showticklabels=True, 
             tickangle=tick_angle,
             dtick=86400000, 
+            ticklabelmode="period", # <--- ADICIONADO: Centraliza o label no período do dia
             range=[zoom_inicio, zoom_fim],
             fixedrange=False 
         ),
@@ -365,14 +415,13 @@ def create_gantt_chart(df_grafico, is_mobile=False):
     )
     
     # Adiciona nomes dos apartamentos dentro do gráfico no modo mobile
-    # FIX: xref="paper" e x=0 fixam o texto na esquerda da tela (Sticky Labels)
     if is_mobile:
         for apt in ordem_apartamentos:
             fig.add_annotation(
-                x=0, # Fixo na esquerda da tela (paper coordinates)
+                x=0,
                 y=apt,
-                xref="paper", # IMPORTANTE: prende na tela, não na data
-                yref="y",     # Mantém alinhado verticalmente com a linha do apartamento
+                xref="paper",
+                yref="y",
                 text=f"<b>{apt}</b>",
                 showarrow=False,
                 xanchor="left",
@@ -380,7 +429,7 @@ def create_gantt_chart(df_grafico, is_mobile=False):
                 yshift=5, 
                 xshift=5, 
                 font=dict(size=12, color="black"),
-                bgcolor="rgba(255, 255, 255, 0.8)", # Mais opaco para não misturar com as barras
+                bgcolor="rgba(255, 255, 255, 0.8)",
                 bordercolor="rgba(0,0,0,0.1)",
                 borderwidth=1,
                 borderpad=2
