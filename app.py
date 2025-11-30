@@ -305,7 +305,7 @@ if not df_reservas.empty:
         st.dataframe(
             df_proximos_hospedes[cols_to_show], 
             hide_index=True, 
-            use_container_width=True,
+            width="stretch", # Atualizado: width="stretch" em vez de use_container_width=True
             column_config=col_config
         )
     else:

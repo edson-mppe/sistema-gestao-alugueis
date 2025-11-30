@@ -7,6 +7,14 @@ def render_custom_css():
     """Renders custom CSS for the application."""
     st.markdown("""
     <style>
+        /* --- CORREÇÃO DE ESPAÇO EM BRANCO (TOPO) --- */
+        /* Reduz o padding padrão do Streamlit que empurra o conteúdo para baixo */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            margin-top: 0rem !important;
+        }
+
         .stButton>button {
             width: 100%;
             background-color: #FF4B4B;
@@ -24,6 +32,11 @@ def render_custom_css():
         }
         /* Mobile Optimizations */
         @media (max-width: 768px) {
+            /* Ajuste fino para mobile: ainda menos espaço se necessário */
+            .block-container {
+                padding-top: 0.5rem !important;
+            }
+            
             .stButton>button {
                 padding: 15px 10px;
                 font-size: 16px;
@@ -40,7 +53,7 @@ def render_custom_css():
             /* --- CORREÇÃO: Diminuir fonte do título principal (h1) no mobile --- */
             h1 {
                 font-size: 1.5rem !important; /* Reduz para ~24px */
-                padding-top: 0.5rem !important;
+                padding-top: 0rem !important; /* Remove padding extra do próprio H1 */
             }
             /* --- CORREÇÃO: Diminuir fonte do subtítulo "Consultar Disponibilidade" (h3) --- */
             h3 {
