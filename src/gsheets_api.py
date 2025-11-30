@@ -205,10 +205,8 @@ def ler_abas_planilha(abas_map):
             
     return dfs
 
+
 def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
-    """
-    Salva o DataFrame na aba especificada, substituindo o conteúdo.
-    """
     try:
         gc = authenticate_google_sheets()
         if not gc: return
@@ -217,21 +215,24 @@ def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
         try:
             worksheet = sh.worksheet(tab_name)
         except gspread.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=tab_name, rows=100, cols=20)
+            worksheet = sh.add_worksheet(title=tab_name, rows=len(df), cols=len(df.columns))
             
-        worksheet.clear()
-        
-        # Converte timestamps para string para evitar erro de serialização JSON
+        # 1. Prepara os dados
         df_str = df.astype(str)
-        
-        # Prepara dados para upload
         dados = [df_str.columns.values.tolist()] + df_str.values.tolist()
+        
+        # 2. Sobrescreve os dados (mantendo formatação das células escritas)
         worksheet.update(range_name='A1', values=dados)
         
-        # Formatação básica (opcional, mas bom manter)
+        # 3. TRUQUE: Redimensiona a planilha para cortar sobras antigas
+        # Número de linhas = dados + cabeçalho.
+        # Isso deleta as linhas antigas que ficariam sobrando lá embaixo.
+        worksheet.resize(rows=len(df_str) + 1, cols=len(df_str.columns))
+        
         worksheet.columns_auto_resize(0, len(df.columns)-1)
         
     except Exception as e:
+        import streamlit as st
         st.error(f"Erro ao salvar dados na aba '{tab_name}': {e}")
 
 def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
