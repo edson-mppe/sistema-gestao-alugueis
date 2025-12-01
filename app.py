@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 
 # Importações dos módulos locais
 from src.services import sincronizar_dados_completo
-from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados
-from src.logic import tratar_dataframe_consolidado, create_gantt_chart, verificar_disponibilidade
+from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados, tratar_dataframe_consolidado
+from src.logic import create_gantt_chart, verificar_disponibilidade
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
 
