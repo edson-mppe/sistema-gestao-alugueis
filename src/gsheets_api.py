@@ -531,7 +531,8 @@ def consolidar_e_salvar_reservas(add_log_func):
             df_consolidado = df_consolidado[cols]
 
         # 7. Timestamp
-        timestamp_agora = datetime.now()
+        # Define o fuso horário diretamente
+        timestamp_agora = datetime.now(ZoneInfo('America/Recife'))
         df_consolidado['Última Atualização'] = timestamp_agora.strftime('%d/%m/%Y %H:%M:%S')
 
         # 8. Salvar
