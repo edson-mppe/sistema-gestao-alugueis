@@ -235,3 +235,14 @@ def parse_pt_date(date_str):
     except Exception:
         return pd.NaT
 
+'''# --- TESTE ---
+datas_teste = [
+    "27-dez.24-sex.",
+    "3-jan.25-sex.",
+    "11-jan.25-sáb.",
+    "14-jan.25-ter.",
+    "data-invalida"
+]
+
+for d in datas_teste:
+    print(f"Original: {d:<16} | Convertida: {parse_pt_date(d)}")'''

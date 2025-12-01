@@ -126,61 +126,6 @@ def verificar_inconsistencias(df_merged):
                 
     return pd.DataFrame(inconsistencias)
 
-def tratar_dataframe_consolidado(df):
-    """
-    Limpa e padroniza o DataFrame consolidado de todas as abas.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-    
-    df_tratado = df.copy()
-
-    # Remove linhas vazias essenciais
-    if 'Início' in df_tratado.columns:
-        df_tratado = df_tratado.dropna(subset=['Início'])
-        df_tratado = df_tratado[df_tratado['Início'].astype(str).str.strip() != '']
-    
-    def parse_flexible_date(x):
-        if pd.isna(x) or x == '': return pd.NaT
-        str_x = str(x).strip().lower()
-        try:
-            return datetime.strptime(str_x, '%d/%m/%Y %H:%M')
-        except ValueError:
-            pass
-        for pt, num in MESES_MAP_REPLACE.items():
-            if pt in str_x:
-                str_x = str_x.replace(pt, num)
-        try:
-            dt = pd.to_datetime(str_x, dayfirst=True, errors='coerce')
-            return dt
-        except:
-            return pd.NaT
-
-    if 'Início' in df_tratado.columns:
-        df_tratado['Início'] = df_tratado['Início'].apply(parse_flexible_date)
-    if 'Fim' in df_tratado.columns:
-        df_tratado['Fim'] = df_tratado['Fim'].apply(parse_flexible_date)
-
-    df_tratado = df_tratado.dropna(subset=['Início', 'Fim'])
-
-    def add_default_hours(dt, hour):
-        if pd.notnull(dt) and dt.time() == time(0, 0):
-            return dt + timedelta(hours=hour)
-        return dt
-
-    df_tratado['Início'] = df_tratado['Início'].apply(lambda x: add_default_hours(x, 15))
-    df_tratado['Fim'] = df_tratado['Fim'].apply(lambda x: add_default_hours(x, 11))
-
-    agora = datetime.now()
-    if 'Status' not in df_tratado.columns:
-        df_tratado['Status'] = ''
-        
-    df_tratado.loc[df_tratado['Fim'] < agora, 'Status'] = 'Concluído'
-    
-    if 'Origem' not in df_tratado.columns:
-        df_tratado['Origem'] = 'Desconhecido'
-
-    return df_tratado
 
 def verificar_disponibilidade(df, data_inicio, data_fim):
     """

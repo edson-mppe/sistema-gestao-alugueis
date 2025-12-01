@@ -6,7 +6,12 @@ from google.oauth2.credentials import Credentials as UserCredentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import os
-from src.config import SHEET_KEY, get_google_credentials
+from src.config import SHEET_KEY, get_google_credentials, APARTMENT_SHEET_MAP
+from src.utils import parse_pt_date
+from datetime import datetime, time, timedelta
+
+
+
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
@@ -91,6 +96,9 @@ def baixar_dados_google_sheet(tab_name):
             return pd.DataFrame()
         
         df = pd.DataFrame(data, columns=headers)
+        
+        # Remove colunas duplicadas (mantendo a primeira ocorrência)
+        df = df.loc[:, ~df.columns.duplicated()]
         
         # Validação de colunas essenciais
         if 'Início' not in df.columns or 'Fim' not in df.columns:
@@ -272,58 +280,61 @@ def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
         st.error(f"Erro ao buscar últimas reservas: {e}")
         return pd.DataFrame()
 
-def ler_abas_planilha(abas_map):
-    """
-    Lê múltiplas abas e retorna um dicionário {nome_aba: dataframe}.
-    """
-    dfs = {}
-    gc = authenticate_google_sheets()
-    if not gc: return dfs
-    
-    sh = gc.open_by_key(SHEET_KEY)
-    
-    for apt_cod, tab_name in abas_map.items():
-        try:
-            worksheet = sh.worksheet(tab_name)
-            all_values = worksheet.get_all_values()
-            if len(all_values) >= 4:
-                headers = all_values[2]
-                data = all_values[3:]
-                dfs[tab_name] = pd.DataFrame(data, columns=headers)
-        except Exception as e:
-            st.warning(f"Aba '{tab_name}' não encontrada ou erro ao ler: {e}")
-            
-    return dfs
-
-
+  
 def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
+    """
+    Salva o DataFrame no Google Sheets com lógica robusta:
+    1. Limpa a aba antes de escrever (evita problemas com filtros antigos).
+    2. Trata NaNs como strings vazias.
+    3. Compatível com versões novas e antigas do gspread.
+    """
     try:
         gc = authenticate_google_sheets()
         if not gc: return
         
         sh = gc.open_by_key(SHEET_KEY)
+        
+        # 1. Abre ou cria a aba
         try:
             worksheet = sh.worksheet(tab_name)
+            # CRUCIAL: Limpa tudo antes de escrever. 
+            # Isso remove filtros antigos e linhas 'fantasmas' que causavam o erro de visualização.
+            worksheet.clear() 
         except gspread.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=tab_name, rows=len(df), cols=len(df.columns))
+            worksheet = sh.add_worksheet(title=tab_name, rows=len(df)+20, cols=len(df.columns))
             
-        # 1. Prepara os dados
-        df_str = df.astype(str)
-        dados = [df_str.columns.values.tolist()] + df_str.values.tolist()
+        # 2. Tratamento de dados
+        # fillna('') deixa a célula vazia no Sheets, em vez de escrever a palavra "nan"
+        df_clean = df.fillna('')
         
-        # 2. Sobrescreve os dados (mantendo formatação das células escritas)
-        worksheet.update(range_name='A1', values=dados)
+        # Prepara a lista de listas (Cabeçalho + Dados)
+        dados = [df_clean.columns.values.tolist()] + df_clean.values.tolist()
         
-        # 3. TRUQUE: Redimensiona a planilha para cortar sobras antigas
-        # Número de linhas = dados + cabeçalho.
-        # Isso deleta as linhas antigas que ficariam sobrando lá embaixo.
-        worksheet.resize(rows=len(df_str) + 1, cols=len(df_str.columns))
-        
-        worksheet.columns_auto_resize(0, len(df.columns)-1)
+        # 3. Escrita Robusta (Bloco do Teste)
+        try:
+            # Tenta sintaxe nova (gspread >= 6.0)
+            worksheet.update(values=dados, range_name='A1')
+        except TypeError:
+            # Fallback para sintaxe antiga (gspread < 6.0)
+            worksheet.update('A1', dados)
+        except Exception:
+            # Última tentativa genérica
+            worksheet.update(dados)
+            
+        # 4. Ajuste Visual (Opcional, mas bom para manter organizado)
+        try:
+            # Redimensiona para o tamanho exato dos dados
+            worksheet.resize(rows=len(dados), cols=len(df.columns))
+            # Ajusta largura das colunas
+            # (Se der erro aqui, ignoramos com pass para não travar o processo principal)
+            worksheet.columns_auto_resize(0, len(df.columns)-1)
+        except Exception:
+            pass
         
     except Exception as e:
         import streamlit as st
         st.error(f"Erro ao salvar dados na aba '{tab_name}': {e}")
+
 
 def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
     """
@@ -339,3 +350,192 @@ def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
         
     except Exception as e:
         st.error(f"Erro ao inserir linha em '{tab_name}': {e}")
+
+
+def ler_abas_planilha(abas_map):
+    """
+    Lê múltiplas abas buscando dinamicamente a linha de cabeçalho.
+    Retorna um dicionário {nome_aba: dataframe}.
+    """
+    dfs = {}
+    gc = authenticate_google_sheets()
+    if not gc: return dfs
+    
+    sh = gc.open_by_key(SHEET_KEY)
+    
+    for apt_cod, tab_name in abas_map.items():
+        try:
+            worksheet = sh.worksheet(tab_name)
+            all_values = worksheet.get_all_values(value_render_option='FORMATTED_VALUE')
+            
+            if len(all_values) < 1:
+                continue
+
+            # --- CORREÇÃO: Busca dinâmica pelo cabeçalho (igual ao baixar_dados) ---
+            header_row_index = -1
+            for i, row in enumerate(all_values[:10]): # Procura nas primeiras 10 linhas
+                # Procura por colunas chave para identificar a linha correta
+                row_str = [str(c).strip() for c in row]
+                if "Início" in row_str and "Status" in row_str:
+                    header_row_index = i
+                    break
+            
+            if header_row_index != -1:
+                headers = all_values[header_row_index]
+                # Remove espaços extras dos nomes das colunas para evitar erros no concat
+                headers = [h.strip() for h in headers] 
+                data = all_values[header_row_index + 1:]
+                
+                df = pd.DataFrame(data, columns=headers)
+                
+                # Remove colunas vazias ou duplicadas
+                df = df.loc[:, ~df.columns.duplicated()]
+                dfs[tab_name] = df
+            else:
+                st.warning(f"Cabeçalho não encontrado na aba '{tab_name}'. Verifique se existem colunas 'Início' e 'Status'.")
+
+        except Exception as e:
+            st.warning(f"Aba '{tab_name}' não encontrada ou erro ao ler: {e}")
+            
+    return dfs
+
+def tratar_dataframe_consolidado(df):
+    """
+    Realiza a limpeza, padronização de datas e regras de negócio no DataFrame de reservas.
+
+    Processos realizados:
+    1. Higiene de Dados: Remove colunas duplicadas e linhas sem data de início.
+    2. Conversão de Datas: Transforma 'Início' e 'Fim' em objetos datetime, lidando com formatos variados e nomes de meses em português (ex: 'out' -> '10').
+    3. Padronização de Horários:
+       - Se a hora não for informada (00:00), define Check-in às 15:00 e Check-out às 11:00.
+    4. Atualização de Status: Marca automaticamente como 'Concluído' as reservas cuja data final é anterior ao momento atual.
+    5. Garantia de Colunas: Assegura que colunas essenciais como 'Origem' existam.
+
+    Args:
+        df (pd.DataFrame): DataFrame bruto concatenado das abas.
+
+    Returns:
+        pd.DataFrame: DataFrame limpo e pronto para análise/salvamento.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+    
+    df_tratado = df.copy()
+    
+    # 1. Remove duplicatas de colunas
+    df_tratado = df_tratado.loc[:, ~df_tratado.columns.duplicated()]
+
+    # 2. Limpeza prévia de linhas vazias
+    if 'Início' in df_tratado.columns:
+        df_tratado = df_tratado.dropna(subset=['Início'])
+        # Garante que é string antes de usar .str
+        df_tratado = df_tratado[df_tratado['Início'].astype(str).str.strip() != '']
+
+    # 3. Aplica conversão de datas
+    if 'Início' in df_tratado.columns:
+        df_tratado['Início'] = df_tratado['Início'].apply(parse_pt_date)
+    if 'Fim' in df_tratado.columns:
+        df_tratado['Fim'] = df_tratado['Fim'].apply(parse_pt_date)
+
+    # 4. Remove linhas onde a data não pôde ser entendida (NaT)
+    df_tratado = df_tratado.dropna(subset=['Início', 'Fim'])
+
+    def add_default_hours(dt, hour_val):
+        # Adiciona hora apenas se for meia-noite exata (data pura)
+        if pd.notnull(dt) and dt.time() == time(0, 0):
+            return dt + timedelta(hours=hour_val)
+        return dt
+
+    # 5. Check-in 15h / Check-out 11h
+    df_tratado['Início'] = df_tratado['Início'].apply(lambda x: add_default_hours(x, 15))
+    df_tratado['Fim'] = df_tratado['Fim'].apply(lambda x: add_default_hours(x, 11))
+
+    # 6. Atualiza Status
+    agora = datetime.now()
+    if 'Status' not in df_tratado.columns:
+        df_tratado['Status'] = ''
+        
+    df_tratado.loc[df_tratado['Fim'] < agora, 'Status'] = 'Concluído'
+    
+    # 7. Garante Origem
+    if 'Origem' not in df_tratado.columns:
+        df_tratado['Origem'] = 'Desconhecido'
+
+    return df_tratado
+
+def consolidar_e_salvar_reservas(add_log_func):
+    """
+    Função isolada para consolidar reservas de todos os apartamentos.
+    """
+    add_log_func("--- Iniciando Consolidação de Reservas ---")
+    
+    # 1. Ler as abas individuais
+    dfs_dict = ler_abas_planilha(APARTMENT_SHEET_MAP)
+    
+    all_reservas = []
+    total_linhas_lidas = 0
+    
+    if dfs_dict:
+        for tab_name, df in dfs_dict.items():
+            if df is not None and not df.empty:
+                df = df.copy()
+                
+                # Preenche coluna de origem (Apartamento)
+                # Nota: tab_name é o nome da aba (ex: SM-C108)
+                df['Apartamento'] = tab_name 
+                
+                all_reservas.append(df)
+                total_linhas_lidas += len(df)
+                # Log detalhado para debug (opcional)
+                # print(f"Aba {tab_name}: {len(df)} reservas encontradas.")
+    else:
+        add_log_func("Nenhuma aba foi lida corretamente. Verifique os nomes das abas e cabeçalhos.")
+        return
+    
+    if all_reservas:
+        # 2. Concatenação (União)
+        # sort=False evita reordenar colunas alfabeticamente
+        df_consolidado = pd.concat(all_reservas, ignore_index=True, sort=False)
+        
+        qtd_final = len(df_consolidado)
+        add_log_func(f"União realizada: {len(all_reservas)} abas resultando em {qtd_final} linhas totais.")
+        
+        # 3. Tratamento inicial (limpeza e padronização externa)
+        # Certifique-se que esta função trata erros caso colunas essenciais faltem
+        if 'tratar_dataframe_consolidado' in globals():
+            df_consolidado = tratar_dataframe_consolidado(df_consolidado)
+        
+        # 4. Adicionar/Regerar idReserva sequencial
+        df_consolidado.reset_index(drop=True, inplace=True)
+        df_consolidado['idReserva'] = df_consolidado.index + 1
+        
+        # 5. Formatar Datas
+        for col in ['Início', 'Fim']:
+            if col in df_consolidado.columns:
+                # Converte para datetime forçando erros a virarem NaT
+                df_consolidado[col] = pd.to_datetime(df_consolidado[col], dayfirst=True, errors='coerce')
+                # Formata apenas o que for data válida
+                df_consolidado[col] = df_consolidado[col].dt.strftime('%d/%m/%Y %H:%M')
+                # Preenche vazios
+                df_consolidado[col] = df_consolidado[col].fillna('')
+
+        # 6. Reordenar colunas (idReserva primeiro, Apartamento em segundo)
+        cols = list(df_consolidado.columns)
+        if 'Apartamento' in cols:
+            cols.insert(0, cols.pop(cols.index('Apartamento')))
+            df_consolidado = df_consolidado[cols]
+
+        cols = list(df_consolidado.columns)
+        if 'idReserva' in cols:
+            cols.insert(0, cols.pop(cols.index('idReserva')))
+            df_consolidado = df_consolidado[cols]
+
+        # 7. Timestamp
+        timestamp_agora = datetime.now()
+        df_consolidado['Última Atualização'] = timestamp_agora.strftime('%d/%m/%Y %H:%M:%S')
+
+        # 8. Salvar
+        salvar_df_no_gsheet(df_consolidado, "Reservas Consolidadas")
+        add_log_func("✅ Sucesso: Reservas consolidadas salvas no Google Sheets.")
+    else:
+        add_log_func("Nenhuma reserva encontrada para consolidar (Listas vazias).")
