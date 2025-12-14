@@ -281,7 +281,6 @@ def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
         st.error(f"Erro ao buscar últimas reservas: {e}")
         return pd.DataFrame()
 
-  
 def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
     """
     Salva o DataFrame no Google Sheets com lógica robusta:
@@ -336,7 +335,6 @@ def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
         import streamlit as st
         st.error(f"Erro ao salvar dados na aba '{tab_name}': {e}")
 
-
 def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
     """
     Insere uma linha no final da aba especificada.
@@ -351,7 +349,6 @@ def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
         
     except Exception as e:
         st.error(f"Erro ao inserir linha em '{tab_name}': {e}")
-
 
 def ler_abas_planilha(abas_map):
     """
@@ -399,145 +396,3 @@ def ler_abas_planilha(abas_map):
             st.warning(f"Aba '{tab_name}' não encontrada ou erro ao ler: {e}")
             
     return dfs
-
-def tratar_dataframe_consolidado(df):
-    """
-    Realiza a limpeza, padronização de datas e regras de negócio no DataFrame de reservas.
-
-    Processos realizados:
-    1. Higiene de Dados: Remove colunas duplicadas e linhas sem data de início.
-    2. Conversão de Datas: Transforma 'Início' e 'Fim' em objetos datetime, lidando com formatos variados e nomes de meses em português (ex: 'out' -> '10').
-    3. Padronização de Horários:
-       - Se a hora não for informada (00:00), define Check-in às 15:00 e Check-out às 11:00.
-    4. Atualização de Status: Marca automaticamente como 'Concluído' as reservas cuja data final é anterior ao momento atual.
-    5. Garantia de Colunas: Assegura que colunas essenciais como 'Origem' existam.
-
-    Args:
-        df (pd.DataFrame): DataFrame bruto concatenado das abas.
-
-    Returns:
-        pd.DataFrame: DataFrame limpo e pronto para análise/salvamento.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-    
-    df_tratado = df.copy()
-    
-    # 1. Remove duplicatas de colunas
-    df_tratado = df_tratado.loc[:, ~df_tratado.columns.duplicated()]
-
-    # 2. Limpeza prévia de linhas vazias
-    if 'Início' in df_tratado.columns:
-        df_tratado = df_tratado.dropna(subset=['Início'])
-        # Garante que é string antes de usar .str
-        df_tratado = df_tratado[df_tratado['Início'].astype(str).str.strip() != '']
-
-    # 3. Aplica conversão de datas
-    if 'Início' in df_tratado.columns:
-        df_tratado['Início'] = df_tratado['Início'].apply(parse_pt_date)
-    if 'Fim' in df_tratado.columns:
-        df_tratado['Fim'] = df_tratado['Fim'].apply(parse_pt_date)
-
-    # 4. Remove linhas onde a data não pôde ser entendida (NaT)
-    df_tratado = df_tratado.dropna(subset=['Início', 'Fim'])
-
-    def add_default_hours(dt, hour_val):
-        # Adiciona hora apenas se for meia-noite exata (data pura)
-        if pd.notnull(dt) and dt.time() == time(0, 0):
-            return dt + timedelta(hours=hour_val)
-        return dt
-
-    # 5. Check-in 15h / Check-out 11h
-    df_tratado['Início'] = df_tratado['Início'].apply(lambda x: add_default_hours(x, 15))
-    df_tratado['Fim'] = df_tratado['Fim'].apply(lambda x: add_default_hours(x, 11))
-
-    # 6. Atualiza Status
-    agora = datetime.now()
-    if 'Status' not in df_tratado.columns:
-        df_tratado['Status'] = ''
-        
-    df_tratado.loc[df_tratado['Fim'] < agora, 'Status'] = 'Concluído'
-    
-    # 7. Garante Origem
-    if 'Origem' not in df_tratado.columns:
-        df_tratado['Origem'] = 'Desconhecido'
-
-    return df_tratado
-
-def consolidar_e_salvar_reservas(add_log_func):
-    """
-    Função isolada para consolidar reservas de todos os apartamentos.
-    """
-    add_log_func("--- Iniciando Consolidação de Reservas ---")
-    
-    # 1. Ler as abas individuais
-    dfs_dict = ler_abas_planilha(APARTMENT_SHEET_MAP)
-    
-    all_reservas = []
-    total_linhas_lidas = 0
-    
-    if dfs_dict:
-        for tab_name, df in dfs_dict.items():
-            if df is not None and not df.empty:
-                df = df.copy()
-                
-                # Preenche coluna de origem (Apartamento)
-                # Nota: tab_name é o nome da aba (ex: SM-C108)
-                df['Apartamento'] = tab_name 
-                
-                all_reservas.append(df)
-                total_linhas_lidas += len(df)
-                # Log detalhado para debug (opcional)
-                # print(f"Aba {tab_name}: {len(df)} reservas encontradas.")
-    else:
-        add_log_func("Nenhuma aba foi lida corretamente. Verifique os nomes das abas e cabeçalhos.")
-        return
-    
-    if all_reservas:
-        # 2. Concatenação (União)
-        # sort=False evita reordenar colunas alfabeticamente
-        df_consolidado = pd.concat(all_reservas, ignore_index=True, sort=False)
-        
-        qtd_final = len(df_consolidado)
-        add_log_func(f"União realizada: {len(all_reservas)} abas resultando em {qtd_final} linhas totais.")
-        
-        # 3. Tratamento inicial (limpeza e padronização externa)
-        # Certifique-se que esta função trata erros caso colunas essenciais faltem
-        if 'tratar_dataframe_consolidado' in globals():
-            df_consolidado = tratar_dataframe_consolidado(df_consolidado)
-        
-        # 4. Adicionar/Regerar idReserva sequencial
-        df_consolidado.reset_index(drop=True, inplace=True)
-        df_consolidado['idReserva'] = df_consolidado.index + 1
-        
-        # 5. Formatar Datas
-        for col in ['Início', 'Fim']:
-            if col in df_consolidado.columns:
-                # Converte para datetime forçando erros a virarem NaT
-                df_consolidado[col] = pd.to_datetime(df_consolidado[col], dayfirst=True, errors='coerce')
-                # Formata apenas o que for data válida
-                df_consolidado[col] = df_consolidado[col].dt.strftime('%d/%m/%Y %H:%M')
-                # Preenche vazios
-                df_consolidado[col] = df_consolidado[col].fillna('')
-
-        # 6. Reordenar colunas (idReserva primeiro, Apartamento em segundo)
-        cols = list(df_consolidado.columns)
-        if 'Apartamento' in cols:
-            cols.insert(0, cols.pop(cols.index('Apartamento')))
-            df_consolidado = df_consolidado[cols]
-
-        cols = list(df_consolidado.columns)
-        if 'idReserva' in cols:
-            cols.insert(0, cols.pop(cols.index('idReserva')))
-            df_consolidado = df_consolidado[cols]
-
-        # 7. Timestamp
-        # Define o fuso horário diretamente
-        timestamp_agora = datetime.now(ZoneInfo('America/Recife'))
-        df_consolidado['Última Atualização'] = timestamp_agora.strftime('%d/%m/%Y %H:%M:%S')
-
-        # 8. Salvar
-        salvar_df_no_gsheet(df_consolidado, "Reservas Consolidadas")
-        add_log_func("✅ Sucesso: Reservas consolidadas salvas no Google Sheets.")
-    else:
-        add_log_func("Nenhuma reserva encontrada para consolidar (Listas vazias).")

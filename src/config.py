@@ -22,6 +22,7 @@ APARTMENT_SHEET_MAP = {
     'cbl004': 'CBL004',
     'ap101': 'AP-101',
     'ap201': 'AP-201',
+    'f216': 'SM-F216'
 }
 
 # --- URLs dos Calendários (OTAs) ---
@@ -46,6 +47,10 @@ OTA_URLS = {
     'd014': {
         'airbnb': "https://www.airbnb.com.br/calendar/ical/1447417239837262921.ics?s=d025b75182c4a9391da767c47ee15692",
         'booking': "https://ical.booking.com/v1/export?t=d980d943-1019-4765-b8b9-670a2439cf46"
+    },
+    'f216': {
+        'airbnb': "https://www.airbnb.com/calendar/ical/1470964694636236725.ics?s=95cf86fef315ea900c0ed146f223abf7",
+        'booking': None # Não tem booking
     }
 }
 

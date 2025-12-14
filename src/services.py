@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from src.config import OTA_URLS, APARTMENT_SHEET_MAP, CALENDARS_DIR
 from src.data_loader import baixar_calendario_ota, atualizar_summaries_ical, save_dataframe_to_ical
-from src.gsheets_api import baixar_dados_google_sheet, inserir_linha_google_sheet, consolidar_e_salvar_reservas
-from src.logic import merge_ical_files, verificar_inconsistencias
+from src.gsheets_api import baixar_dados_google_sheet, inserir_linha_google_sheet
+from src.logic import merge_ical_files, verificar_inconsistencias, consolidar_e_salvar_reservas
 from src.utils import get_holidays
 import os
 

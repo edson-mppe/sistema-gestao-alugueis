@@ -279,10 +279,10 @@ if not df_reservas.empty:
                  df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='coerce')
 
         # Definição das colunas para exibição (Ordem e existência)
-        '''desired_order = [
-            "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
-            "Dias", "Pessoas", "Total BT", "Diária BT", "Origem"
-        ]'''
+        #desired_order = [
+        #    "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
+        #    "Dias", "Pessoas", "Total BT", "Diária BT", "Origem"
+        
         desired_order = [
             "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
             "Dias", "Pessoas", "Origem"
