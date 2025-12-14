@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 
 # Importações dos módulos locais
 from src.services import sincronizar_dados_completo
-from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados, tratar_dataframe_consolidado
-from src.logic import create_gantt_chart, verificar_disponibilidade
+from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados
+from src.logic import create_gantt_chart, verificar_disponibilidade, consolidar_e_salvar_reservas, tratar_dataframe_consolidado
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
 
@@ -279,9 +279,13 @@ if not df_reservas.empty:
                  df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='coerce')
 
         # Definição das colunas para exibição (Ordem e existência)
-        desired_order = [
+        '''desired_order = [
             "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
             "Dias", "Pessoas", "Total BT", "Diária BT", "Origem"
+        ]'''
+        desired_order = [
+            "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
+            "Dias", "Pessoas", "Origem"
         ]
         
         # Filtra apenas as colunas que realmente existem no DataFrame
