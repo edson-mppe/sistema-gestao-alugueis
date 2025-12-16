@@ -2,7 +2,7 @@ import requests
 import os
 from icalendar import Calendar, Event
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.config import CALENDARS_DIR
 from src.utils import parse_pt_date
 
@@ -41,12 +41,46 @@ def atualizar_summaries_ical(filename):
             cal = Calendar.from_ical(f.read())
             
         modificado = False
+        # Datas para verificação de placeholder (hoje + 365 dias)
+        hoje = datetime.now().date()
+        target_start = hoje + timedelta(days=365)
+        target_end = target_start + timedelta(days=1)
+        
+        components_to_remove = []
+
         for component in cal.walk('VEVENT'):
+            # 1. Atualizar Summary
             summary_original = str(component.get('summary'))
             if summary_original in regras_summary:
                 component['summary'] = regras_summary[summary_original]
                 modificado = True
+            
+            # 2. Identificar e marcar placeholder para remoção
+            dtstart_prop = component.get('dtstart')
+            dtend_prop = component.get('dtend')
+
+            if dtstart_prop and dtend_prop:
+                dtstart = dtstart_prop.dt
+                dtend = dtend_prop.dt
                 
+                # Normalizar para date se for datetime
+                if isinstance(dtstart, datetime):
+                    dtstart = dtstart.date()
+                if isinstance(dtend, datetime):
+                    dtend = dtend.date()
+
+                if dtstart == target_start and dtend == target_end:
+                    components_to_remove.append(component)
+                    modificado = True
+                    #print(f"  Removendo placeholder em {filename}: {dtstart}")
+
+        # Remover componentes marcados
+        for component in components_to_remove:
+            try:
+                cal.subcomponents.remove(component)
+            except ValueError:
+                pass # Caso não esteja na lista direta (improvável em calendários comuns)
+
         if modificado:
             with open(filepath, 'wb') as f:
                 f.write(cal.to_ical())

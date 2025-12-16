@@ -1,5 +1,4 @@
 import os
-import streamlit as st
 from pathlib import Path
 
 # --- Caminhos ---
@@ -68,8 +67,12 @@ def get_google_credentials():
     Retorna um dicionário de credenciais ou None.
     """
     # 1. Tenta pegar do st.secrets (Produção/Streamlit Cloud)
-    if "gcp_service_account" in st.secrets:
-        return dict(st.secrets["gcp_service_account"])
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except (ImportError, FileNotFoundError, Exception):
+        pass
     
     # 2. Tenta pegar de arquivo local (Desenvolvimento)
     # Tenta primeiro credentials2.json (que parecia ser o usado para escrita em alguns scripts)

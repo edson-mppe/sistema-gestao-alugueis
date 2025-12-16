@@ -1,6 +1,6 @@
 import gspread
 import pandas as pd
-import streamlit as st
+from src.logger import log_error, log_warning
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from google.oauth2.credentials import Credentials as UserCredentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -54,11 +54,11 @@ def authenticate_google_sheets():
                     with open(token_file, 'w') as token:
                         token.write(creds.to_json())
                 except Exception as e:
-                    st.error(f"Falha na autenticação OAuth local: {e}")
+                    log_error(f"Falha na autenticação OAuth local: {e}")
                     return None
 
     if not creds:
-        st.error("Não foi possível encontrar credenciais válidas. Verifique o .streamlit/secrets.toml ou credentials.json.")
+        log_error("Não foi possível encontrar credenciais válidas. Verifique o .streamlit/secrets.toml ou credentials.json.")
         return None
 
     return gspread.authorize(creds)
@@ -93,7 +93,7 @@ def baixar_dados_google_sheet(tab_name):
             # Se não achar, assume que não tem cabeçalho ou está em formato inesperado
             # Tenta usar a primeira linha se parecer cabeçalho, senão retorna vazio
             # Mas como falhou antes, melhor retornar vazio para forçar o fallback
-            st.warning(f"Cabeçalhos 'Início' e 'Fim' não encontrados na aba '{tab_name}'.")
+            log_warning(f"Cabeçalhos 'Início' e 'Fim' não encontrados na aba '{tab_name}'.")
             return pd.DataFrame()
         
         df = pd.DataFrame(data, columns=headers)
@@ -103,7 +103,7 @@ def baixar_dados_google_sheet(tab_name):
         
         # Validação de colunas essenciais
         if 'Início' not in df.columns or 'Fim' not in df.columns:
-            st.warning(f"Colunas 'Início' e 'Fim' não encontradas na aba '{tab_name}'. Retornando vazio para forçar fallback.")
+            log_warning(f"Colunas 'Início' e 'Fim' não encontradas na aba '{tab_name}'. Retornando vazio para forçar fallback.")
             return pd.DataFrame()
             
         # Seleção de colunas por nome para maior robustez
@@ -115,7 +115,7 @@ def baixar_dados_google_sheet(tab_name):
             
         return df
     except Exception as e:
-        st.error(f"Erro ao baixar dados da aba '{tab_name}': {e}")
+        log_error(f"Erro ao baixar dados da aba '{tab_name}': {e}")
         return pd.DataFrame()
 
 def baixar_proximos_hospedes_consolidados(tab_name = "Reservas Consolidadas"):
@@ -131,7 +131,7 @@ def baixar_proximos_hospedes_consolidados(tab_name = "Reservas Consolidadas"):
         try:
             worksheet = sh.worksheet(tab_name)
         except gspread.WorksheetNotFound:
-            st.warning(f"Aba '{tab_name}' não encontrada.")
+            log_warning(f"Aba '{tab_name}' não encontrada.")
             return pd.DataFrame()
 
         all_values = worksheet.get_all_values()
@@ -205,7 +205,7 @@ def baixar_proximos_hospedes_consolidados(tab_name = "Reservas Consolidadas"):
         return df_proximos[cols_to_return]
 
     except Exception as e:
-        st.error(f"Erro ao buscar próximos hóspedes: {e}")
+        log_error(f"Erro ao buscar próximos hóspedes: {e}")
         return pd.DataFrame()
 
 def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
@@ -222,7 +222,7 @@ def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
         try:
             worksheet = sh.worksheet(tab_name)
         except gspread.WorksheetNotFound:
-            st.warning(f"Aba '{tab_name}' não encontrada.")
+            log_warning(f"Aba '{tab_name}' não encontrada.")
             return pd.DataFrame()
 
         all_values = worksheet.get_all_values()
@@ -274,11 +274,11 @@ def baixar_ultimas_reservas_consolidadas(tab_name = "Reservas Consolidadas"):
         else:
             # Se não tiver as colunas essenciais, retorna vazio ou o que tiver
             if 'Data Reserva' not in df.columns:
-                st.warning("Coluna 'Data Reserva' não encontrada para cálculo de recência.")
+                log_warning("Coluna 'Data Reserva' não encontrada para cálculo de recência.")
             return df
 
     except Exception as e:
-        st.error(f"Erro ao buscar últimas reservas: {e}")
+        log_error(f"Erro ao buscar últimas reservas: {e}")
         return pd.DataFrame()
 
 def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
@@ -332,23 +332,57 @@ def salvar_df_no_gsheet(df, tab_name="Reservas Consolidadas"):
             pass
         
     except Exception as e:
-        import streamlit as st
-        st.error(f"Erro ao salvar dados na aba '{tab_name}': {e}")
+        log_error(f"Erro ao salvar dados na aba '{tab_name}': {e}")
 
-def inserir_linha_google_sheet(dados_linha, tab_name="Inconsistências"):
+def inserir_linha_google_sheet(dados_linhas, tab_name="Inconsistências"):
     """
-    Insere uma linha no final da aba especificada.
+    Insere linhas na aba especificada, na posição 5, e ordena.
+    dados_linhas: Lista de Listas (ex: [[col1, col2], [col1, col2]])
     """
     try:
         gc = authenticate_google_sheets()
-        if not gc: return
+        if not gc: return False
         
         sh = gc.open_by_key(SHEET_KEY)
-        worksheet = sh.worksheet(tab_name)
-        worksheet.append_row(dados_linha)
+        try:
+            worksheet = sh.worksheet(tab_name)
+        except gspread.WorksheetNotFound:
+            log_error(f"Aba '{tab_name}' não encontrada.")
+            return False
+
+        if not isinstance(dados_linhas, list):
+            log_error("Dados devem ser uma lista de listas.")
+            return False
+
+        # Se for uma lista simples (apenas 1 linha sem estar aninhada), envolve em lista
+        # Mas idealmente chamamos com lista de listas. Vamos ser robustos:
+        if dados_linhas and not isinstance(dados_linhas[0], list):
+             # Assumindo que o usuário passou [a, b, c] querendo inserir 1 linha
+             dados_linhas = [dados_linhas]
+
+        print(f"  Inserindo {len(dados_linhas)} linhas em '{tab_name}' at index 5...")
+        
+        # O notebook insere um por um no index 5 e ordena
+        # Inserir no index 5 repetidamente faz com que a última inserida fique no topo (se não ordenasse)
+        # Mas como ordena logo em seguida, a ordem final depende da ordenação.
+        
+        for row in dados_linhas:
+            worksheet.insert_row(row, index=5, value_input_option='USER_ENTERED')
+            # Ordena A4:Z10000 pela col 1 (Data)
+            # A API do gspread para sort_range mudou ou é .sort?
+            # O notebook usava worksheet.sort((1, 'asc'), range='A4:Z10000')
+            try:
+                worksheet.sort((1, 'asc'), range='A4:Z10000')
+            except Exception as e_sort:
+                # Log leve se falhar sort mas inseriu
+                print(f"    [Aviso] Falha ao ordenar: {e_sort}")
+
+        return True
         
     except Exception as e:
-        st.error(f"Erro ao inserir linha em '{tab_name}': {e}")
+        log_error(f"Erro ao inserir linha em '{tab_name}': {e}")
+        return False
+
 
 def ler_abas_planilha(abas_map):
     """
@@ -390,9 +424,9 @@ def ler_abas_planilha(abas_map):
                 df = df.loc[:, ~df.columns.duplicated()]
                 dfs[tab_name] = df
             else:
-                st.warning(f"Cabeçalho não encontrado na aba '{tab_name}'. Verifique se existem colunas 'Início' e 'Status'.")
+                log_warning(f"Cabeçalho não encontrado na aba '{tab_name}'. Verifique se existem colunas 'Início' e 'Status'.")
 
         except Exception as e:
-            st.warning(f"Aba '{tab_name}' não encontrada ou erro ao ler: {e}")
+            log_warning(f"Aba '{tab_name}' não encontrada ou erro ao ler: {e}")
             
     return dfs
