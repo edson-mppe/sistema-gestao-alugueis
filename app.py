@@ -90,6 +90,16 @@ def obter_ultima_sincronizacao(df):
         print(f"Erro ao extrair última sincronização: {e}")
         return None
 
+@st.cache_data(ttl=300)
+def carregar_proximos_hospedes():
+    """Wrapper com cache para baixar próximos hóspedes."""
+    return baixar_proximos_hospedes_consolidados()
+
+@st.cache_data(ttl=300)
+def carregar_ultimas_reservas():
+    """Wrapper com cache para baixar últimas reservas."""
+    return baixar_ultimas_reservas_consolidadas()
+
 # --- Callbacks ---
 
 def on_sync_click():
@@ -265,7 +275,7 @@ if not df_reservas.empty:
     st.markdown("### 📋 Próximos Hóspedes")
     
     with st.spinner("Buscando próximas chegadas..."):
-        df_proximos_hospedes = baixar_proximos_hospedes_consolidados()
+        df_proximos_hospedes = carregar_proximos_hospedes()
     
     if not df_proximos_hospedes.empty:
         # Conversão e limpeza de dados
@@ -367,8 +377,8 @@ if not df_reservas.empty:
     st.markdown("### 📋 Últimas Reservas (Top 3 por Apto)")
     
     with st.spinner("Buscando reservas recentes..."):
-        # Chama a função importada do gsheets_api
-        df_recents = baixar_ultimas_reservas_consolidadas()
+        # Chama a função cached wrapper
+        df_recents = carregar_ultimas_reservas()
         
     if not df_recents.empty:
         # Garante que as colunas de data sejam datetime para ordenação correta
