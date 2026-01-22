@@ -11,12 +11,8 @@ from src.logic import create_gantt_chart, verificar_disponibilidade, consolidar_
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
 
-# --- Configuração da Página ---
-st.set_page_config(
-    page_title="Gestão de Aluguéis",
-    page_icon="🏢",
-    layout="wide"
-)
+# --- Configuração da Página --- 
+# Config removida (movida para app.py)
 
 # --- HACK: Definir idioma para pt-BR ---
 # Isso altera o atributo 'lang' do HTML para evitar que o navegador sugira tradução

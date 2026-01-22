@@ -6,11 +6,8 @@ import src.ui as ui
 from src.gsheets_api import baixar_proximos_hospedes_consolidados, baixar_ultimas_reservas_consolidadas
 
 # --- Configuração da Página ---
-st.set_page_config(
-    page_title="Detalhes das Reservas",
-    page_icon="📋",
-    layout="wide"
-)
+# --- Configuração da Página ---
+# Config removida (movida para app.py)
 
 # --- HACK: Definir idioma para pt-BR ---
 components.html("""
