@@ -49,7 +49,7 @@ OTA_URLS = {
     },
     'f216': {
         'airbnb': "https://www.airbnb.com/calendar/ical/1470964694636236725.ics?s=95cf86fef315ea900c0ed146f223abf7",
-        'booking': None # Não tem booking
+        'booking': "https://ical.booking.com/v1/export?t=f57fe8c1-bcb5-4d4a-bc93-817343891726" #None # Não tem booking
     }
 }
 
