@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 # Importações dos módulos locais
 from src.services import sincronizar_dados_completo
-from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha, baixar_ultimas_reservas_consolidadas, baixar_proximos_hospedes_consolidados
+from src.gsheets_api import baixar_dados_google_sheet, ler_abas_planilha
 from src.logic import create_gantt_chart, verificar_disponibilidade, consolidar_e_salvar_reservas, tratar_dataframe_consolidado
 from src.config import APARTMENT_SHEET_MAP
 import src.ui as ui
@@ -90,15 +90,7 @@ def obter_ultima_sincronizacao(df):
         print(f"Erro ao extrair última sincronização: {e}")
         return None
 
-@st.cache_data(ttl=300)
-def carregar_proximos_hospedes():
-    """Wrapper com cache para baixar próximos hóspedes."""
-    return baixar_proximos_hospedes_consolidados()
 
-@st.cache_data(ttl=300)
-def carregar_ultimas_reservas():
-    """Wrapper com cache para baixar últimas reservas."""
-    return baixar_ultimas_reservas_consolidadas()
 
 # --- Callbacks ---
 
@@ -269,138 +261,7 @@ if not df_reservas.empty:
     # Renderiza Gráfico
     ui.render_gantt_chart()
 
-    st.divider()
 
-    # --- EXIBIR TABELA DE PRÓXIMOS HÓSPEDES ---
-    st.markdown("### 📋 Próximos Hóspedes")
-    
-    with st.spinner("Buscando próximas chegadas..."):
-        df_proximos_hospedes = carregar_proximos_hospedes()
-    
-    if not df_proximos_hospedes.empty:
-        # Conversão e limpeza de dados
-        for col in ['Início', 'Fim', 'Data Reserva']:
-            if col in df_proximos_hospedes.columns:
-                df_proximos_hospedes[col] = pd.to_datetime(df_proximos_hospedes[col], dayfirst=True, errors='coerce')
-        
-        # Tenta garantir que colunas numéricas sejam números
-        for col in ['Dias', 'Pessoas']:
-            if col in df_proximos_hospedes.columns:
-                 df_proximos_hospedes[col] = pd.to_numeric(df_proximos_hospedes[col], errors='coerce')
-
-        # Definição das colunas para exibição (Ordem e existência)
-        #desired_order = [
-        #    "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
-        #    "Dias", "Pessoas", "Total BT", "Diária BT", "Origem"
-        
-        desired_order = [
-            "Apartamento", "Quem", "Início", "Fim", "Dias até Check-in", 
-            "Dias", "Pessoas", "Origem"
-        ]
-        
-        # Filtra apenas as colunas que realmente existem no DataFrame
-        cols_to_show = [c for c in desired_order if c in df_proximos_hospedes.columns]
-        
-        # Configuração visual das colunas
-        col_config = {
-            "Apartamento": st.column_config.TextColumn("Apto"),
-            "Início": st.column_config.DateColumn("Check-in", format="DD/MM/YYYY"),
-            "Fim": st.column_config.DateColumn("Check-out", format="DD/MM/YYYY"),
-            #"Data Reserva": st.column_config.DateColumn("Reserva", format="DD/MM/YYYY"),
-            "Dias até Check-in": st.column_config.NumberColumn("Dias p/ Chegar", format="%d dias", help="Dias restantes até o check-in"),
-            "Quem": st.column_config.TextColumn("Hóspede"),
-            "Origem": st.column_config.TextColumn("Canal"),
-            "Dias": st.column_config.NumberColumn("Noites"),
-            "Pessoas": st.column_config.NumberColumn("Pax"),
-            "Total BT": st.column_config.TextColumn("Total"),   # Mantém como texto para não quebrar formatação "R$" se vier string
-            "Diária BT": st.column_config.TextColumn("Diária"), # Mantém como texto
-        }
-
-        event = st.dataframe(
-            df_proximos_hospedes[cols_to_show], 
-            hide_index=True, 
-            width="stretch", # Atualizado: width="stretch" em vez de use_container_width=True
-            column_config=col_config,
-            selection_mode="single-row",
-            on_select="rerun"
-        )
-
-        # --- BOTÕES AUTOMÁTICOS PARA CHECK-IN HOJE ---
-        hoje = datetime.now().date()
-        
-        # Filtra check-ins de hoje
-        if 'Início' in df_proximos_hospedes.columns:
-             checkins_hoje = df_proximos_hospedes[
-                df_proximos_hospedes['Início'].dt.date == hoje
-             ]
-             
-             if not checkins_hoje.empty:
-                 st.markdown("#### 🔔 Check-ins de Hoje")
-                 cols = st.columns(len(checkins_hoje))
-                 for idx, (_, row) in enumerate(checkins_hoje.iterrows()):
-                     apto = row['Apartamento']
-                     msg = f"Bom dia!. Hoje teremos chech-in no Apto {apto}"
-                     import urllib.parse
-                     msg_encoded = urllib.parse.quote(msg)
-                     phone = "558193275644"
-                     whatsapp_url = f"https://wa.me/{phone}?text={msg_encoded}"
-                     
-                     with cols[idx]:
-                        st.link_button(f"📲 Enviar WhatsApp (Apto {apto})", whatsapp_url, type="primary")
-
-        # --- SELEÇÃO MANUAL ---
-        if len(event.selection.rows) > 0:
-            selected_row_index = event.selection.rows[0]
-            selected_row = df_proximos_hospedes[cols_to_show].iloc[selected_row_index]
-            
-            apto = selected_row["Apartamento"]
-            
-            # Formata a mensagem
-            msg = f"Bom dia!. Hoje teremos chech-in no Apto {apto}"
-            
-            # Codifica a mensagem para URL
-            import urllib.parse
-            msg_encoded = urllib.parse.quote(msg)
-            
-            # Número fixo conforme solicitado
-            phone = "558193275644"
-            
-            whatsapp_url = f"https://wa.me/{phone}?text={msg_encoded}"
-            
-            st.link_button(f"📱 Enviar WhatsApp (Apto {apto})", whatsapp_url)
-    else:
-        st.info("Não foi possível carregar os próximos hóspedes (ou não há reservas futuras).")  
-    
-    st.divider()
-
-    # --- EXIBIR TABELA DE ÚLTIMAS RESERVAS ---
-    st.markdown("### 📋 Últimas Reservas (Top 3 por Apto)")
-    
-    with st.spinner("Buscando reservas recentes..."):
-        # Chama a função cached wrapper
-        df_recents = carregar_ultimas_reservas()
-        
-    if not df_recents.empty:
-        # Garante que as colunas de data sejam datetime para ordenação correta
-        for col in ['Início', 'Fim', 'Data Reserva']:
-            if col in df_recents.columns:
-                # ADICIONADO: dayfirst=True para evitar aviso de parser warning com datas DD/MM/YYYY
-                df_recents[col] = pd.to_datetime(df_recents[col], dayfirst=True, errors='coerce')
-
-        # Exibe a tabela utilizando st.dataframe com column_config para formatação
-        st.dataframe(
-            df_recents, 
-            hide_index=True,
-            width="stretch", # Atualizado: width="stretch" em vez de use_container_width=True
-            column_config={
-                "Início": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
-                "Fim": st.column_config.DateColumn("Fim", format="DD/MM/YYYY"),
-                "Data Reserva": st.column_config.DateColumn("Data Reserva", format="DD/MM/YYYY"),
-                "Dias Decorridos": st.column_config.NumberColumn("Dias Decorridos", format="%d dias")
-            }
-        )
-    else:
-        st.info("Não foi possível carregar as reservas recentes.")
 
 else:
     st.info("Nenhuma reserva encontrada. Clique em 'Sincronizar Dados Agora' na barra lateral.")

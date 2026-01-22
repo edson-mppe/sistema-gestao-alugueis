@@ -86,7 +86,7 @@ Sua planilha deve ter:
 ### Executar localmente
 
 ```bash
-streamlit run app.py
+streamlit run Disponibilidade.py
 ```
 
 O aplicativo abrirá em `http://localhost:8501`
